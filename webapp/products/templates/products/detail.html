@@ -1,0 +1,55 @@
+{% extends "products/base.html" %}
+{% block title %}{{ product.title }}{% endblock %}
+{% block content %}
+
+<div class="card">
+  <span class="badge">{% if is_published %}Published{% else %}Draft (chưa lên store){% endif %}</span>
+  <h2>{{ product.title }}</h2>
+  <p>{{ product.description|linebreaksbr }}</p>
+  <p><strong>Variants bật:</strong> {{ enabled_variants|join:", " }}</p>
+  {% if is_published and storefront_url %}
+    <p><a href="{{ storefront_url }}" target="_blank" rel="noopener">Xem trên store →</a></p>
+  {% endif %}
+
+  {% if images %}
+    <div class="images">
+      {% for src in images %}
+        <img src="{{ src }}" alt="mockup">
+      {% endfor %}
+    </div>
+  {% else %}
+    <p><em>Mockup đang được Printify render, thử tải lại trang sau vài giây.</em></p>
+    <a href="{% url 'product_detail' product.id %}"><button type="button" class="btn-secondary">Tải lại</button></a>
+  {% endif %}
+
+  <div class="actions">
+    {% if not is_published %}
+      <form method="post" action="{% url 'publish_product' product.id %}" class="guarded-form"
+            onsubmit="return confirm('Publish sản phẩm này lên store thật?');">
+        {% csrf_token %}
+        <button type="submit" class="btn-publish">Publish lên store</button>
+      </form>
+    {% endif %}
+    <form method="post" action="{% url 'delete_product' product.id %}" class="guarded-form"
+          onsubmit="return confirm('Xóa hẳn sản phẩm này khỏi Printify?');">
+      {% csrf_token %}
+      <button type="submit" class="btn-delete">Xóa</button>
+    </form>
+    <a href="{% url 'index' %}"><button type="button" class="btn-secondary">Tạo sản phẩm khác</button></a>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.guarded-form').forEach((form) => {
+    let submitting = false;
+    form.addEventListener('submit', (e) => {
+      if (submitting) { e.preventDefault(); return; }
+      if (e.defaultPrevented) return;
+      submitting = true;
+      const btn = form.querySelector('button[type=submit]');
+      if (btn) { btn.disabled = true; btn.textContent = 'Đang xử lý...'; }
+    });
+  });
+</script>
+
+{% endblock %}

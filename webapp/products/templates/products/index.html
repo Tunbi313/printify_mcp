@@ -1,0 +1,59 @@
+{% extends "products/base.html" %}
+{% block title %}Tạo sản phẩm mới{% endblock %}
+{% block content %}
+
+<div class="card">
+  <form method="post" action="{% url 'create_product' %}" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    <label for="template">Template</label>
+    <select name="template" id="template" required>
+      <option value="" disabled selected>-- Chọn sản phẩm --</option>
+      {% for t in templates %}
+        <option value="{{ t.key }}" data-spec="{{ t.artwork_spec }}" data-sizes="{{ t.sizes|join:', ' }}">
+          {{ t.label }} ({{ t.key }})
+        </option>
+      {% endfor %}
+    </select>
+    <div class="tpl-meta" id="tpl-meta"></div>
+
+    <label for="image">Ảnh design</label>
+    <input type="file" name="image" id="image" accept=".png,.jpg,.jpeg" required>
+
+    <label for="title">Title</label>
+    <input type="text" name="title" id="title" placeholder="Yosemite Retro Sunburst Poster" required>
+
+    <label for="description">Description</label>
+    <textarea name="description" id="description" placeholder="Mô tả sản phẩm (SEO)..."></textarea>
+
+    <label for="tags">Tags (phân cách bởi dấu phẩy)</label>
+    <input type="text" name="tags" id="tags" placeholder="national park, retro, wall art">
+
+    <button type="submit" class="btn-primary" id="submit-btn">Tạo draft trên Printify</button>
+  </form>
+</div>
+
+<script>
+  const select = document.getElementById('template');
+  const meta = document.getElementById('tpl-meta');
+  select.addEventListener('change', () => {
+    const opt = select.selectedOptions[0];
+    if (!opt) { meta.textContent = ''; return; }
+    meta.textContent = `Sizes: ${opt.dataset.sizes} — Artwork spec: ${opt.dataset.spec}`;
+  });
+
+  const form = document.querySelector('form');
+  const submitBtn = document.getElementById('submit-btn');
+  let submitting = false;
+  form.addEventListener('submit', (e) => {
+    if (submitting) {
+      e.preventDefault();
+      return;
+    }
+    submitting = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Đang tải ảnh & tạo sản phẩm... vui lòng đợi';
+  });
+</script>
+
+{% endblock %}
