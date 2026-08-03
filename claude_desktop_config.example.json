@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "printify-sunfade": {
+      "command": "python",
+      "args": ["/ABSOLUTE/PATH/TO/printify-mcp/server.py"],
+      "env": {
+        "PRINTIFY_TOKEN": "YOUR_PRINTIFY_API_TOKEN_HERE",
+        "PRINTIFY_SHOP_ID": "YOUR_SHOP_ID_HERE"
+      }
+    }
+  }
+}
