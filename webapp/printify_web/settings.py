@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -25,12 +26,27 @@ load_dotenv(BASE_DIR / ".env")
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-b4y74%be%0eju2bpvrm=m$zcosff8@*2bgxq&0f=h+drlcab-9'
+SECRET_KEY = os.environ.get(
+    "DJANGO_SECRET_KEY",
+    'django-insecure-b4y74%be%0eju2bpvrm=m$zcosff8@*2bgxq&0f=h+drlcab-9',
+)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Defaults to True to keep local `runserver` behavior unchanged. Set
+# DEBUG=False as an env var on any publicly reachable deploy — with
+# DEBUG=True, Django's error pages dump local variables (including the
+# Printify/fal.ai/OpenRouter secrets loaded above) to whoever hits a bug.
+DEBUG = os.environ.get("DEBUG", "True") == "True"
 
-ALLOWED_HOSTS = ['0.0.0.0', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = os.environ.get(
+    "ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0"
+).split(",")
+
+# Render sets this automatically; add it so the app is reachable there
+# without needing to also set ALLOWED_HOSTS by hand.
+_render_host = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+if _render_host:
+    ALLOWED_HOSTS.append(_render_host)
+    CSRF_TRUSTED_ORIGINS = [f"https://{_render_host}"]
 
 
 # Application definition

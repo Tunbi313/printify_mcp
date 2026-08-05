@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: sunfade-printify
+    runtime: python
+    plan: free
+    rootDir: webapp
+    buildCommand: pip install -r requirements.txt
+    startCommand: python manage.py migrate --noinput && gunicorn printify_web.wsgi:application --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DEBUG
+        value: "False"
+      - key: PRINTIFY_TOKEN
+        sync: false
+      - key: PRINTIFY_SHOP_ID
+        sync: false
+      - key: FAL_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o-mini
