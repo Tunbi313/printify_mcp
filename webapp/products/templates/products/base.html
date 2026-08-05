@@ -58,10 +58,49 @@
     .images img { width: 220px; border-radius: 8px; border: 1px solid #ddd; }
     .actions { display: flex; gap: 10px; margin-top: 20px; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; background: #eef2ff; color: #3730a3; }
+    #desc-rendered table, .product-description table { border-collapse: collapse; margin: 8px 0; }
+    #desc-rendered td, #desc-rendered th, .product-description td, .product-description th {
+      border: 1px solid #ddd; padding: 6px 12px; text-align: left;
+    }
+    #desc-rendered ul, .product-description ul { margin: 6px 0; padding-left: 22px; }
+    #desc-rendered p, .product-description p { margin: 8px 0; }
+    #desc-rendered:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
+    @media (prefers-color-scheme: dark) {
+      #desc-rendered { background: #1e1e1e; color: #eaeaea; border-color: #444; }
+      #desc-rendered table, .product-description table { border-color: #444; }
+      #desc-rendered td, #desc-rendered th, .product-description td, .product-description th { border-color: #444; }
+    }
+    nav { margin-bottom: 8px; }
+    nav a { margin-right: 16px; font-size: 0.9rem; font-weight: 600; }
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      align-items: center; justify-content: center;
+      padding: 24px;
+      z-index: 100;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: #fff; border-radius: 10px; padding: 20px;
+      max-width: 700px; max-height: 85vh; overflow-y: auto; width: 100%;
+    }
+    @media (prefers-color-scheme: dark) { .modal-box { background: #1a1a1a; } }
+    .modal-box h3 { margin-top: 0; }
+    .modal-close { float: right; background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 0 4px; }
+    .modal-images img { width: 100%; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd; }
+    .modal-status { font-size: 0.9rem; color: #666; }
   </style>
 </head>
 <body>
   <h1><a href="{% url 'index' %}" style="text-decoration:none;">🖨️ Sunfade Printify</a></h1>
+  <nav>
+    <a href="{% url 'index' %}">Tạo sản phẩm</a>
+    <a href="{% url 'batch_page' %}">Tạo hàng loạt</a>
+    <a href="{% url 'library_page' %}">Thư viện</a>
+    <a href="{% url 'template_gallery' %}">Danh sách Template</a>
+    <a href="{% url 'upscale_page' %}">Upscale ảnh</a>
+  </nav>
 
   {% if messages %}
     {% for message in messages %}

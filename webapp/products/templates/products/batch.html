@@ -1,0 +1,91 @@
+{% extends "products/base.html" %}
+{% block title %}Tạo hàng loạt{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Tạo hàng loạt từ nhiều ảnh</h2>
+  <p class="tpl-meta">
+    Chọn 1 template và chọn nhiều ảnh cùng lúc — mỗi ảnh sẽ thành 1 sản phẩm
+    draft. Title lấy từ tên file, description và tags dùng bản mặc định của
+    template (không gọi AI, không tốn phí ngoài Printify). Ảnh nào tên không
+    rõ nghĩa (vd IMG_1234.png) sẽ bị bỏ qua — đổi tên file trước khi upload.
+  </p>
+
+  <form method="post" action="{% url 'batch_page' %}" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    <label for="template">Template</label>
+    <select name="template" id="template" required>
+      <option value="" disabled selected>-- Chọn template --</option>
+      {% for t in templates %}
+        <option value="{{ t.key }}">{{ t.label }} ({{ t.key }})</option>
+      {% endfor %}
+    </select>
+
+    <label for="images">Ảnh design</label>
+    <input type="file" name="images" id="images" accept=".png,.jpg,.jpeg" multiple>
+    <div class="tpl-meta">
+      Mẹo: trong cửa sổ chọn file, vào đúng thư mục chứa design rồi bấm
+      <strong>Ctrl+A</strong> (hoặc kéo chuột chọn hết) để chọn toàn bộ ảnh
+      trong thư mục cùng lúc.
+    </div>
+    <div class="tpl-meta" id="file-count"></div>
+
+    <button type="submit" class="btn-primary" id="submit-btn">Tạo hàng loạt (draft)</button>
+  </form>
+</div>
+
+{% if results %}
+<div class="card">
+  <h3>Kết quả</h3>
+  <table style="width:100%; border-collapse:collapse;">
+    <thead>
+      <tr style="text-align:left; border-bottom:2px solid #e0e0e0;">
+        <th style="padding:6px;">File</th>
+        <th style="padding:6px;">Trạng thái</th>
+        <th style="padding:6px;">Chi tiết</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+      <tr style="border-bottom:1px solid #eee;">
+        <td style="padding:6px;">{{ r.filename }}</td>
+        <td style="padding:6px;">
+          {% if r.ok %}<span class="badge" style="background:#dcfce7; color:#166534;">Đã tạo</span>
+          {% else %}<span class="badge" style="background:#fee2e2; color:#991b1b;">Lỗi</span>{% endif %}
+        </td>
+        <td style="padding:6px;">
+          {% if r.ok %}
+            <a href="{% url 'product_detail' r.product_id %}">{{ r.title }} →</a>
+          {% else %}
+            {{ r.error }}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<script>
+  const imagesInput = document.getElementById('images');
+  const fileCount = document.getElementById('file-count');
+
+  imagesInput.addEventListener('change', () => {
+    const n = imagesInput.files.length;
+    fileCount.textContent = n ? `Đã chọn ${n} ảnh.` : '';
+  });
+
+  const form = document.querySelector('form');
+  const submitBtn = document.getElementById('submit-btn');
+  let submitting = false;
+  form.addEventListener('submit', (e) => {
+    if (submitting) { e.preventDefault(); return; }
+    submitting = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Đang tạo hàng loạt... vui lòng đợi (có thể mất vài phút với nhiều ảnh)';
+  });
+</script>
+
+{% endblock %}

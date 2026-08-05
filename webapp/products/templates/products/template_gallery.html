@@ -1,0 +1,116 @@
+{% extends "products/base.html" %}
+{% block title %}Danh sách Template{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Danh sách Template</h2>
+  <p class="tpl-meta">Bấm vào 1 dòng để xem ảnh mẫu sản phẩm từ catalog Printify.</p>
+  <div style="overflow-x:auto;">
+    <table style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr style="text-align:left; border-bottom:2px solid #e0e0e0;">
+          <th style="padding:8px 6px;">Template</th>
+          <th style="padding:8px 6px;">Mã</th>
+          <th style="padding:8px 6px;">Size</th>
+          <th style="padding:8px 6px;">Giá</th>
+          <th style="padding:8px 6px;">Artwork spec</th>
+          <th style="padding:8px 6px;">Prompt mẫu</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in templates %}
+        <tr style="border-bottom:1px solid #eee;">
+          <td class="tpl-row" data-key="{{ t.key }}" data-label="{{ t.label }}" data-prompt="{{ t.sample_prompt }}"
+              style="padding:8px 6px; font-weight:600; cursor:pointer;">{{ t.label }}</td>
+          <td style="padding:8px 6px;"><code>{{ t.key }}</code></td>
+          <td style="padding:8px 6px;">{{ t.sizes|join:", " }}</td>
+          <td style="padding:8px 6px;">{% for p in t.prices %}${{ p }}{% if not forloop.last %} / {% endif %}{% endfor %}</td>
+          <td style="padding:8px 6px; font-size:0.85rem; color:#666;">{{ t.artwork_spec }}</td>
+          <td style="padding:8px 6px; font-size:0.85rem; color:#666; max-width:280px;">
+            {{ t.sample_prompt }}
+            {% if t.sample_prompt %}
+            <button type="button" class="copy-prompt-btn btn-secondary"
+                    data-prompt="{{ t.sample_prompt }}"
+                    style="display:block; margin-top:6px; padding:4px 8px; font-size:0.75rem;">Copy prompt</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal-box">
+    <button type="button" class="modal-close" id="modal-close">&times;</button>
+    <h3 id="modal-title"></h3>
+    <div id="modal-prompt" style="font-size:0.85rem; color:#666; margin-bottom:12px;"></div>
+    <div class="modal-status" id="modal-status"></div>
+    <div class="modal-images" id="modal-images"></div>
+  </div>
+</div>
+
+<script>
+  const overlay = document.getElementById('modal-overlay');
+  const modalTitle = document.getElementById('modal-title');
+  const modalPrompt = document.getElementById('modal-prompt');
+  const modalStatus = document.getElementById('modal-status');
+  const modalImages = document.getElementById('modal-images');
+  const cache = {};
+
+  function openModal(key, label, prompt) {
+    modalTitle.textContent = label;
+    modalPrompt.textContent = prompt ? `Prompt mẫu: ${prompt}` : '';
+    modalImages.innerHTML = '';
+    overlay.classList.add('open');
+
+    if (cache[key]) {
+      renderImages(cache[key]);
+      return;
+    }
+
+    modalStatus.textContent = 'Đang tải ảnh mẫu...';
+    fetch(`/templates/${key}/images/`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          modalStatus.textContent = data.error;
+          return;
+        }
+        cache[key] = data.images || [];
+        renderImages(cache[key]);
+      })
+      .catch(() => { modalStatus.textContent = 'Lỗi khi tải ảnh mẫu.'; });
+  }
+
+  function renderImages(images) {
+    if (!images.length) {
+      modalStatus.textContent = 'Không có ảnh mẫu cho template này.';
+      return;
+    }
+    modalStatus.textContent = '';
+    modalImages.innerHTML = images.map(src => `<img src="${src}" alt="mockup">`).join('');
+  }
+
+  document.querySelectorAll('.tpl-row').forEach(row => {
+    row.addEventListener('click', () => openModal(row.dataset.key, row.dataset.label, row.dataset.prompt));
+  });
+
+  document.querySelectorAll('.copy-prompt-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(btn.dataset.prompt).then(() => {
+        const original = btn.textContent;
+        btn.textContent = 'Đã copy!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      });
+    });
+  });
+
+  document.getElementById('modal-close').addEventListener('click', () => overlay.classList.remove('open'));
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') overlay.classList.remove('open'); });
+</script>
+
+{% endblock %}

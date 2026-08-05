@@ -1,0 +1,52 @@
+{% extends "products/base.html" %}
+{% block title %}Thư viện Draft{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Thư viện — sản phẩm chưa publish</h2>
+  <p class="tpl-meta">
+    Danh sách các sản phẩm draft (chưa lên store) hiện có trên Printify.
+    Xóa được ngay tại đây, không cần nhớ link từng sản phẩm.
+  </p>
+
+  {% if not drafts %}
+    <p class="tpl-meta">Không có draft nào.</p>
+  {% else %}
+  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px; margin-top:16px;">
+    {% for d in drafts %}
+    <div class="card" style="padding:12px; margin-bottom:0;">
+      <a href="{% url 'product_detail' d.id %}">
+        {% if d.thumb %}
+          <img src="{{ d.thumb }}" alt="{{ d.title }}" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid #ddd;">
+        {% else %}
+          <div style="width:100%; aspect-ratio:1; border-radius:6px; border:1px solid #ddd; display:flex; align-items:center; justify-content:center; color:#999; font-size:0.8rem;">Chưa có ảnh</div>
+        {% endif %}
+      </a>
+      <p style="font-size:0.85rem; font-weight:600; margin:8px 0 4px;">
+        <a href="{% url 'product_detail' d.id %}" style="text-decoration:none;">{{ d.title }}</a>
+      </p>
+      <form method="post" action="{% url 'delete_product' d.id %}" class="guarded-form"
+            onsubmit="return confirm('Xóa hẳn sản phẩm này khỏi Printify?');">
+        {% csrf_token %}
+        <button type="submit" class="btn-delete" style="width:100%; padding:6px; font-size:0.8rem;">Xóa</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  document.querySelectorAll('.guarded-form').forEach((form) => {
+    let submitting = false;
+    form.addEventListener('submit', (e) => {
+      if (submitting) { e.preventDefault(); return; }
+      if (e.defaultPrevented) return;
+      submitting = true;
+      const btn = form.querySelector('button[type=submit]');
+      if (btn) { btn.disabled = true; btn.textContent = 'Đang xóa...'; }
+    });
+  });
+</script>
+
+{% endblock %}

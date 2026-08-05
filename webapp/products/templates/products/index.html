@@ -10,7 +10,8 @@
     <select name="template" id="template" required>
       <option value="" disabled selected>-- Chọn sản phẩm --</option>
       {% for t in templates %}
-        <option value="{{ t.key }}" data-spec="{{ t.artwork_spec }}" data-sizes="{{ t.sizes|join:', ' }}">
+        <option value="{{ t.key }}" data-spec="{{ t.artwork_spec }}" data-sizes="{{ t.sizes|join:', ' }}"
+                data-description="{{ t.default_description }}" data-tags="{{ t.default_tags }}">
           {{ t.label }} ({{ t.key }})
         </option>
       {% endfor %}
@@ -20,14 +21,29 @@
     <label for="image">Ảnh design</label>
     <input type="file" name="image" id="image" accept=".png,.jpg,.jpeg" required>
 
-    <label for="title">Title</label>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <label for="title" style="margin:14px 0 4px;">Title</label>
+      <button type="button" class="btn-secondary" id="ai-title-btn" title="AI viết title từ ảnh"
+              style="padding:4px 10px; font-size:0.8rem;">🪄 AI viết title</button>
+    </div>
     <input type="text" name="title" id="title" placeholder="Yosemite Retro Sunburst Poster" required>
+    <div class="tpl-meta" id="title-status"></div>
 
     <label for="description">Description</label>
-    <textarea name="description" id="description" placeholder="Mô tả sản phẩm (SEO)..."></textarea>
+    <div style="display:flex; justify-content:flex-end; margin-bottom:6px;">
+      <button type="button" class="btn-secondary" id="toggle-html-btn" style="padding:4px 10px; font-size:0.8rem;">&lt;/&gt; Xem mã HTML</button>
+    </div>
+    <div id="desc-rendered" contenteditable="true"
+         style="min-height:160px; padding:8px 10px; border:1px solid #ccc; border-radius:6px; font-size:0.95rem; overflow-y:auto;"></div>
+    <textarea name="description" id="description" style="display:none; min-height:160px; font-family:monospace; font-size:0.85rem;"></textarea>
 
-    <label for="tags">Tags (phân cách bởi dấu phẩy)</label>
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <label for="tags" style="margin:14px 0 4px;">Tags (phân cách bởi dấu phẩy)</label>
+      <button type="button" class="btn-secondary" id="ai-tags-btn" title="AI thêm tag từ ảnh"
+              style="padding:4px 10px; font-size:0.8rem;">🪄 AI thêm tag</button>
+    </div>
     <input type="text" name="tags" id="tags" placeholder="national park, retro, wall art">
+    <div class="tpl-meta" id="tags-status"></div>
 
     <button type="submit" class="btn-primary" id="submit-btn">Tạo draft trên Printify</button>
   </form>
@@ -36,10 +52,168 @@
 <script>
   const select = document.getElementById('template');
   const meta = document.getElementById('tpl-meta');
+  const descInput = document.getElementById('description');
+  const descRendered = document.getElementById('desc-rendered');
+  const toggleHtmlBtn = document.getElementById('toggle-html-btn');
+  let htmlMode = false;
+
+  function setDescription(html) {
+    descInput.value = html;
+    descRendered.innerHTML = html;
+  }
+  // Rendered (WYSIWYG-ish) view is the source of truth while visible;
+  // raw textarea is the source of truth while HTML mode is on.
+  descRendered.addEventListener('input', () => { descInput.value = descRendered.innerHTML; });
+  descInput.addEventListener('input', () => { descRendered.innerHTML = descInput.value; });
+
+  toggleHtmlBtn.addEventListener('click', () => {
+    htmlMode = !htmlMode;
+    if (htmlMode) {
+      descInput.value = descRendered.innerHTML;
+      descRendered.style.display = 'none';
+      descInput.style.display = 'block';
+      toggleHtmlBtn.textContent = '👁 Xem bình thường';
+    } else {
+      descRendered.innerHTML = descInput.value;
+      descInput.style.display = 'none';
+      descRendered.style.display = 'block';
+      toggleHtmlBtn.textContent = '</> Xem mã HTML';
+    }
+  });
+
+  const imageInput = document.getElementById('image');
+  const titleInput = document.getElementById('title');
+  const titleStatus = document.getElementById('title-status');
+  const tagsInput = document.getElementById('tags');
+
+  // Short product-type word appended after the subject parsed from the
+  // filename, e.g. "Yosemite Retro Sunburst" + "Poster".
+  const PRODUCT_WORDS = {
+    poster_matte_2x3: 'Poster', canvas_2x3: 'Canvas', sticker: 'Sticker',
+    mug: 'Mug', tshirt: 'T-Shirt', hat: 'Trucker Hat',
+    hat_vintage_a: 'Dad Hat', hat_vintage_b: 'Vintage Cap', candle: 'Candle',
+    tumbler: 'Tumbler', stein_mug: 'Stein Mug', pillow_damask: 'Outdoor Pillow',
+    pillow_woven: 'Woven Pillow', pillow_body: 'Body Pillow',
+    can_glass_engraved: 'Can Glass',
+  };
+  const GENERIC_FILENAME_WORDS = new Set([
+    'img', 'image', 'photo', 'picture', 'pic', 'screenshot', 'screen',
+    'shot', 'untitled', 'file', 'dsc', 'download', 'downloaded', 'copy',
+    'new', 'final', 'design', 'artwork', 'art', 'sunfade',
+  ]);
+
+  function titleCaseWord(w) {
+    if (w.length <= 3 && w === w.toUpperCase()) return w; // keep short acronyms as-is
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  }
+
+  function subjectFromFilename(filename) {
+    const base = filename.replace(/\.[^.]+$/, '');
+    const rawTokens = base.split(/[_\-\s]+/).filter(Boolean);
+    const words = [];
+    for (const tok of rawTokens) {
+      if (/^\d+$/.test(tok)) continue; // pure numbers (dates, IDs)
+      if (/^\d{2,5}[xX]\d{2,5}$/.test(tok)) continue; // "7200x10800"-style resolution
+      for (const w of tok.replace(/([a-z])([A-Z])/g, '$1 $2').split(/\s+/)) {
+        if (w && !GENERIC_FILENAME_WORDS.has(w.toLowerCase())) words.push(w);
+      }
+    }
+    if (!words.length) return '';
+    return words.map(titleCaseWord).join(' ');
+  }
+
+  function appendProductWord(title) {
+    const productWord = PRODUCT_WORDS[select.value] || '';
+    if (!productWord) return title;
+    if (title.toLowerCase().includes(productWord.toLowerCase())) return title;
+    return `${title} ${productWord}`;
+  }
+
+  function autoFillFromImage() {
+    if (!imageInput.files.length) return;
+    const subject = subjectFromFilename(imageInput.files[0].name);
+    const opt = select.selectedOptions[0];
+    const defaultTags = opt && opt.dataset.tags ? opt.dataset.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+    // Tags: only the template's own default tag set — no filename keywords
+    // mixed in automatically. Extra tags only get added when the user
+    // explicitly clicks "AI thêm tag".
+    tagsInput.value = defaultTags.join(', ');
+
+    if (!subject) {
+      titleInput.value = '';
+      titleStatus.textContent = 'Không đọc được chủ đề từ tên file ảnh — vui lòng đặt tên file rõ nghĩa hơn hoặc tự nhập title.';
+      return;
+    }
+    titleInput.value = appendProductWord(subject);
+    titleStatus.textContent = 'Đã tự điền title từ tên file ảnh — kiểm tra lại trước khi tạo sản phẩm.';
+  }
+
+  imageInput.addEventListener('change', autoFillFromImage);
+
   select.addEventListener('change', () => {
     const opt = select.selectedOptions[0];
     if (!opt) { meta.textContent = ''; return; }
     meta.textContent = `Sizes: ${opt.dataset.sizes} — Artwork spec: ${opt.dataset.spec}`;
+    if (opt.dataset.description) {
+      setDescription(opt.dataset.description);
+    }
+    autoFillFromImage();
+  });
+
+  const csrfToken = document.querySelector('input[name=csrfmiddlewaretoken]').value;
+
+  const aiTitleBtn = document.getElementById('ai-title-btn');
+  const titleStatus2 = document.getElementById('title-status');
+  aiTitleBtn.addEventListener('click', () => {
+    if (!imageInput.files.length) {
+      titleStatus2.textContent = 'Bạn cần chọn ảnh design trước.';
+      return;
+    }
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrfToken);
+    formData.append('template', select.value);
+    formData.append('image', imageInput.files[0]);
+
+    aiTitleBtn.disabled = true;
+    titleStatus2.textContent = 'AI đang viết title từ ảnh... vui lòng đợi.';
+
+    fetch('{% url "generate_title" %}', { method: 'POST', body: formData })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { titleStatus2.textContent = `Lỗi: ${data.error}`; return; }
+        titleInput.value = appendProductWord(data.title);
+        titleStatus2.textContent = 'Đã điền title từ AI — kiểm tra lại trước khi tạo sản phẩm.';
+      })
+      .catch(() => { titleStatus2.textContent = 'Lỗi khi gọi AI viết title.'; })
+      .finally(() => { aiTitleBtn.disabled = false; });
+  });
+
+  const aiTagsBtn = document.getElementById('ai-tags-btn');
+  const tagsStatus = document.getElementById('tags-status');
+  aiTagsBtn.addEventListener('click', () => {
+    if (!imageInput.files.length) {
+      tagsStatus.textContent = 'Bạn cần chọn ảnh design trước.';
+      return;
+    }
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrfToken);
+    formData.append('template', select.value);
+    formData.append('image', imageInput.files[0]);
+    formData.append('existing_tags', tagsInput.value);
+
+    aiTagsBtn.disabled = true;
+    tagsStatus.textContent = 'AI đang thêm tag từ ảnh... vui lòng đợi.';
+
+    fetch('{% url "generate_tags" %}', { method: 'POST', body: formData })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { tagsStatus.textContent = `Lỗi: ${data.error}`; return; }
+        tagsInput.value = data.tags.join(', ');
+        tagsStatus.textContent = 'Đã thêm tag từ AI — kiểm tra lại trước khi tạo sản phẩm.';
+      })
+      .catch(() => { tagsStatus.textContent = 'Lỗi khi gọi AI thêm tag.'; })
+      .finally(() => { aiTagsBtn.disabled = false; });
   });
 
   const form = document.querySelector('form');

@@ -21,6 +21,42 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "placeholder": {"x": 0.5, "y": 0.5, "scale": 0.9956715564046932,
                          "angle": 0, "flipX": False, "flipY": False},
         "artwork_spec": "7200x10800 px PNG, 2:3, sRGB, full-bleed",
+        "target_width": 7200,
+        "target_height": 10800,
+        "sample_prompt": "Retro national park travel poster of [địa danh outdoor], "
+                          "bold sunburst sky, warm earthy palette (rust, mustard, "
+                          "teal), flat vector illustration, vintage WPA poster "
+                          "style, no text, no logos, full-bleed edge-to-edge "
+                          "composition, 2:3 vertical portrait.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Materials: 210 gsm satin paper or 230 gsm archival matte paper</li>"
+            "<li>Two paper finishes to choose from: satin or archival matte</li>"
+            "<li>Available in 3 sizes, vertical 2:3 format</li>"
+            "<li>Assembled in the USA from globally sourced parts</li>"
+            "</ul>"
+            "<p>Bring your artwork to life in high-end detail with a quality "
+            "poster print. Available in 210gsm satin paper or 230gsm archival "
+            "matte paper, these prints look stunning up close and hold up "
+            "for years. Choose from three vertical sizes — 12x18, 20x30, or "
+            "24x36 — to fit your space.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>If the poster gathers any dust, wipe it gently with a clean, "
+            "dry cloth.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><th></th><th>Width</th><th>Height</th></tr>"
+            "<tr><td>12x18</td><td>12 in</td><td>18 in</td></tr>"
+            "<tr><td>20x30</td><td>20 in</td><td>30 in</td></tr>"
+            "<tr><td>24x36</td><td>24 in</td><td>36 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "poster", "wall art", "national park", "retro", "vintage",
+            "home decor", "nature", "landscape", "travel poster", "outdoor",
+            "gift", "art print", "mountain", "adventure",
+        ],
     },
     "canvas_2x3": {
         "label": "Classic Stretched Canvas (1.5\")",
@@ -36,6 +72,41 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                          "angle": 0, "flipX": False, "flipY": False},
         "artwork_spec": "7200x10800 px PNG, 2:3, sRGB, full-bleed "
                         "(same file as poster; keep key detail away from canvas fold edges)",
+        "target_width": 7200,
+        "target_height": 10800,
+        "sample_prompt": "Retro national park travel poster of [địa danh outdoor], "
+                          "bold sunburst sky, warm earthy palette (rust, mustard, "
+                          "teal), flat vector illustration, vintage WPA poster "
+                          "style, no text, no logos, key details kept away from "
+                          "outer edges, 2:3 vertical portrait.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Material: 100% polyester canvas on a pine wood frame</li>"
+            "<li>Available in 4 sizes, vertical 2:3 format</li>"
+            "<li>Hanging kit included (2 screws + sawtooth hanger)</li>"
+            "</ul>"
+            "<p>Make your art feel at home on this polyester canvas. Each "
+            "canvas comes stretched on a beautiful pine wood frame, ready to "
+            "hang out of the box — a highly giftable, ready-to-display "
+            "piece.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>If the canvas gathers any dust, wipe it off gently with a "
+            "clean, damp cloth.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><th></th><th>Width</th><th>Height</th></tr>"
+            "<tr><td>12x18</td><td>12 in</td><td>18 in</td></tr>"
+            "<tr><td>16x24</td><td>16 in</td><td>24 in</td></tr>"
+            "<tr><td>20x30</td><td>20 in</td><td>30 in</td></tr>"
+            "<tr><td>24x36</td><td>24 in</td><td>36 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "canvas", "wall art", "national park", "retro", "vintage",
+            "home decor", "nature", "landscape", "outdoor", "gift",
+            "canvas print", "mountain", "framed art", "adventure",
+        ],
     },
     "sticker": {
         "label": "Square Sticker (die-cut, UV)",
@@ -52,6 +123,41 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "uv",
         "artwork_spec": "1800x1800 px PNG, 1:1 square, transparent background "
                         "for die-cut (badge centered with margin). NOT the poster file.",
+        "target_width": 1800,
+        "target_height": 1800,
+        "sample_prompt": "Die-cut badge sticker illustration of [chủ đề outdoor "
+                          "icon], bold clean outline, flat vector style, vibrant "
+                          "retro color palette, centered composition with even "
+                          "margin around edges, transparent background, no "
+                          "gradients, no text.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Material: 100% vinyl with 3M glue backing</li>"
+            "<li>Four sizes to choose from</li>"
+            "<li>Glossy finish, grey adhesive backing</li>"
+            "<li>For indoor use — not waterproof</li>"
+            "</ul>"
+            "<p>You cannot go wrong with a classic square-style sticker. "
+            "Clean, crisp edges and a simple-but-elegant look make this the "
+            "most straightforward and popular option.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Use a soft, clean, dry cloth to gently brush any dust or "
+            "dirt off the sticker outwards from the center.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><th></th><th>Width</th><th>Height</th></tr>"
+            "<tr><td>2x2</td><td>2 in</td><td>2 in</td></tr>"
+            "<tr><td>3x3</td><td>3 in</td><td>3 in</td></tr>"
+            "<tr><td>4x4</td><td>4 in</td><td>4 in</td></tr>"
+            "<tr><td>6x6</td><td>6 in</td><td>6 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "sticker", "vinyl sticker", "national park", "outdoor", "retro",
+            "badge", "laptop sticker", "water bottle sticker", "hiking",
+            "adventure", "nature", "gift", "decal",
+        ],
     },
     "mug": {
         "label": "Ceramic Mug 11oz (dye-sub)",
@@ -65,6 +171,38 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "dye-sublimation",
         "artwork_spec": "2700x1119 px PNG, 2.41:1 wide banner (wraparound). "
                         "Keep main subject centered; edges simple. NOT the poster file.",
+        "target_width": 2700,
+        "target_height": 1119,
+        "sample_prompt": "Wraparound mug graphic of [chủ đề outdoor scene], retro "
+                          "travel poster illustration style, warm earthy palette, "
+                          "wide horizontal panoramic composition, subject centered, "
+                          "simple seamless edges, no text near the handle seam.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>White ceramic, 11oz (0.33l)</li>"
+            "<li>Rounded corners, C-handle</li>"
+            "<li>Microwave and dishwasher safe</li>"
+            "</ul>"
+            "<p>A classic bestseller — this custom mug is for those who "
+            "truly believe there's nothing better than a cup of your "
+            "favorite beverage in hand. Made of durable white ceramic with "
+            "vivid, ORCA-coated print quality, it's the perfect gift for "
+            "every true coffee or tea lover.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Clean in the dishwasher or wash by hand with warm water and "
+            "dish soap.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><td>Height</td><td>3.74 in</td></tr>"
+            "<tr><td>Diameter</td><td>3.15 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "mug", "coffee mug", "national park", "outdoor", "retro",
+            "gift", "travel mug", "camping", "hiking", "nature lover gift",
+            "ceramic mug", "adventure",
+        ],
     },
     "tshirt": {
         "label": "Unisex Softstyle Tee (Gildan 64000)",
@@ -104,6 +242,43 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "centered. Front and/or back via images_by_position. "
                         "For dark colors (black/maroon/indigo) use a design with "
                         "a light outline so it stays visible.",
+        "target_width": 3852,
+        "target_height": 4398,
+        "sample_prompt": "Front chest graphic design of [chủ đề outdoor icon], "
+                          "bold retro illustration, flat vector style with a "
+                          "light outline for visibility on dark fabric, centered "
+                          "composition, transparent background, no background "
+                          "elements, no text.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>100% ring-spun cotton (4.5 oz/153 g/m²), semi-fitted classic shape</li>"
+            "<li>Available in 5 colors: White, Sport Grey, Black, Maroon, Heather Indigo</li>"
+            "<li>5 sizes: S, M, L, XL, 2XL</li>"
+            "<li>Ribbed knit collar, shoulder tape for durability</li>"
+            "</ul>"
+            "<p>Soft, breathable, and true to size — the Gildan Softstyle "
+            "64000 combines a modern comfort fit with everyday durability. "
+            "Solid colors are 100% cotton, while heather colors are a "
+            "cotton/polyester blend for extra softness.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Machine wash cold (max 30°C) with similar colors. Do not "
+            "bleach. Tumble dry low. Iron low if needed. Do not dryclean.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><th></th><th>Width</th><th>Length</th></tr>"
+            "<tr><td>S</td><td>18 in</td><td>28 in</td></tr>"
+            "<tr><td>M</td><td>20 in</td><td>29 in</td></tr>"
+            "<tr><td>L</td><td>22 in</td><td>30 in</td></tr>"
+            "<tr><td>XL</td><td>24 in</td><td>31 in</td></tr>"
+            "<tr><td>2XL</td><td>26 in</td><td>32 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "t-shirt", "graphic tee", "national park", "outdoor", "retro",
+            "hiking shirt", "camping", "adventure", "nature lover",
+            "unisex shirt", "gift", "vintage tee",
+        ],
     },
     "hat": {
         "label": "Trucker Hat (DTF)",
@@ -121,6 +296,41 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "dtf",
         "artwork_spec": "1650x750 px PNG, 2.2:1 wide, transparent background, "
                         "badge centered. DTF has white underbase. NOT the poster file.",
+        "target_width": 1650,
+        "target_height": 750,
+        "sample_prompt": "Small badge-style patch design of [chủ đề outdoor icon], "
+                          "bold flat vector illustration, thick clean outlines, "
+                          "high contrast colors, compact centered composition, "
+                          "transparent background, wide badge layout, no text.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Material: 100% polyester foam front with 100% nylon mesh back</li>"
+            "<li>One size fits most (22.8&quot;/58cm)</li>"
+            "<li>5 colorways: Black, Green, Pink, Dark Navy, Royal</li>"
+            "<li>Adjustable plastic snap closure (20&quot;–24&quot;)</li>"
+            "<li>Six rows of stitching on the visor</li>"
+            "</ul>"
+            "<p>Trucker caps are perfect for everyday wear — versatile and easy "
+            "to dress up or down. The 100% polyester front and 100% nylon mesh "
+            "back make this cap durable through regular wear and tear, and "
+            "your design is printed with sharp, vivid, fade-resistant DTF "
+            "print. Pick any colorway and make it your own.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Hand wash with warm water and mild soap. No need to soak the "
+            "whole cap — use a soft-bristled brush on tough spots.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><td>Circumference</td><td>22.8 in / 58 cm</td></tr>"
+            "<tr><td>Crown height</td><td>3.5 in</td></tr>"
+            "<tr><td>Bill length</td><td>3.03 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "trucker hat", "cap", "national park", "outdoor", "retro",
+            "hiking", "camping", "adventure", "badge hat", "gift",
+            "snapback",
+        ],
     },
     "hat_vintage_a": {
         "label": "Embroidery Dad Hat",
@@ -137,6 +347,42 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "embroidery",
         "artwork_spec": "TEXT ONLY (no images). Front 1650x600 px, Back 600x300 px. "
                         "Transparent PNG, thread color matches cap (dark cap=cream, light cap=brown).",
+        "sample_prompt": "Minimalist single-color embroidered lettering, slogan "
+                          "'ADVENTURE AWAITS' (or similar outdoor slogan), thin "
+                          "elegant serif or script typography, no icons or "
+                          "images, transparent background, thread color cream "
+                          "on dark cap / brown on light cap.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>100% preshrunk cotton twill</li>"
+            "<li>Unstructured, six-panel, low-profile, soft crown</li>"
+            "<li>6 sewn eyelets, 4 stitched rows on the brim</li>"
+            "<li>Adjustable hook-and-loop closure — one size fits most</li>"
+            "<li>3 colors: Charcoal Grey, Black, Khaki</li>"
+            "</ul>"
+            "<p>The Distressed Dad Hat brings effortless style and comfort "
+            "to your casual look. Made from 100% preshrunk cotton twill, "
+            "this relaxed, low-profile hat features a custom embroidered "
+            "design with the adjustable hook-and-loop closure ensuring a "
+            "perfect fit.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Use warm water and dish soap to clean spots off your hat. "
+            "It's not necessary to soak the whole item — for hard-to-clean "
+            "spots, use a soft-bristled brush.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><td>Circumference</td><td>19.02–22.05 in</td></tr>"
+            "<tr><td>Height</td><td>5.00 in</td></tr>"
+            "<tr><td>Visor width</td><td>2.60 in</td></tr>"
+            "<tr><td>Visor length</td><td>7.78 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "dad hat", "embroidered hat", "outdoor", "adventure", "hiking",
+            "camping", "vintage cap", "gift", "unstructured hat",
+            "nature lover",
+        ],
     },
     "hat_vintage_b": {
         "label": "Embroidery Vintage Cap",
@@ -154,6 +400,42 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "embroidery",
         "artwork_spec": "TEXT ONLY (no images). Front 1650x600 px, Back 600x300 px. "
                         "Transparent PNG, thread color matches cap (dark cap=cream, light/pink cap=brown).",
+        "sample_prompt": "Minimalist single-color embroidered lettering, slogan "
+                          "'STAY WILD' (or similar outdoor slogan), thin elegant "
+                          "vintage script typography, no icons or images, "
+                          "transparent background, thread color cream on dark "
+                          "cap / brown on pink cap.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>100% cotton twill, 6-panel unstructured cap, low profile</li>"
+            "<li>6 sewn eyelets, black sweatband</li>"
+            "<li>Metal snap buckle with antique brass finish</li>"
+            "<li>Washed-out vintage effect — one size fits most</li>"
+            "<li>4 colors: Black, Maroon, Charcoal Grey, Pink</li>"
+            "</ul>"
+            "<p>Add a touch of timeless style with the Vintage Cap. Crafted "
+            "from 100% cotton twill, this 6-panel unstructured cap has a "
+            "relaxed, laid-back look. The washed-out vintage effect gives "
+            "each cap slight, one-of-a-kind color variation — that's the "
+            "charm, not a defect.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Use warm water and dish soap to clean spots off your hat. "
+            "It's not necessary to soak the whole item — for hard-to-clean "
+            "spots, use a soft-bristled brush.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><td>Circumference</td><td>18.50–23.23 in</td></tr>"
+            "<tr><td>Height</td><td>4.33 in</td></tr>"
+            "<tr><td>Width</td><td>7.09 in</td></tr>"
+            "<tr><td>Panel height</td><td>2.83 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "vintage cap", "embroidered hat", "outdoor", "adventure",
+            "hiking", "camping", "distressed cap", "gift", "nature lover",
+            "stay wild",
+        ],
     },
     "candle": {
         "label": "Scented Soy Candle 9oz",
@@ -168,6 +450,41 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                          "angle": 0, "flipX": False, "flipY": False},
         "artwork_spec": "900x600 px PNG, 3:2 horizontal label (wraps around jar). "
                         "Apothecary/minimalist candle aesthetic — NOT outdoor/Sunfade style.",
+        "target_width": 900,
+        "target_height": 600,
+        "sample_prompt": "Apothecary-style candle label design, minimalist "
+                          "botanical illustration, [tên mùi hương] theme, muted "
+                          "earthy palette (sage, cream, terracotta), elegant "
+                          "serif typography, horizontal wraparound layout, no "
+                          "outdoor/national park elements.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Materials: 100% natural soy wax, 100% cotton wick, glass jar</li>"
+            "<li>One size: 2.8&quot; x 3.5&quot; (7.1cm x 8.9cm)</li>"
+            "<li>Burn time: 30–40 hours</li>"
+            "<li>Glossy permanent adhesive label</li>"
+            "<li>3 scents: Apple Harvest, Cinnamon Vanilla, Christmas Warmth</li>"
+            "</ul>"
+            "<p>Packed with immersive aromas, these scented candles come in "
+            "a 9oz glass jar that's reusable once the candle is gone. Made "
+            "with 100% natural soy wax and a 100% cotton wick, each candle "
+            "features a permanent adhesive label where your custom designs "
+            "can come alive.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Keep the burning wick within sight. Keep away from children "
+            "and pets. Never burn the candle near flammable items.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><td>Diameter</td><td>2.80 in</td></tr>"
+            "<tr><td>Height</td><td>3.10 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "scented candle", "soy candle", "apothecary", "gift",
+            "home fragrance", "minimalist candle", "glass jar candle",
+            "cozy home", "self care", "aromatherapy",
+        ],
     },
     "tumbler": {
         "label": "SPOKE Tumbler 20oz",
@@ -180,6 +497,40 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                          "angle": 0, "flipX": False, "flipY": False},
         "artwork_spec": "2795x2100 px PNG, 1.33:1 wraparound. Coffee/drink/minimalist "
                         "aesthetic — NOT outdoor/Sunfade style.",
+        "target_width": 2795,
+        "target_height": 2100,
+        "sample_prompt": "Wraparound tumbler graphic, minimalist coffee/drink "
+                          "line art illustration, [chủ đề] theme, muted modern "
+                          "palette (charcoal, cream, warm brown), horizontal "
+                          "seamless wrap composition, no outdoor/national park "
+                          "elements.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Materials: stainless steel body, plastic and rubber lid</li>"
+            "<li>One size: 20oz (0.59l)</li>"
+            "<li>Vacuum insulated double-wall steel body</li>"
+            "<li>Clear push-on lid with rubber gasket, glossy finish</li>"
+            "</ul>"
+            "<p>This tumbler is an excellent choice for daily use to keep "
+            "20oz of your favorite beverages hot or cold thanks to the "
+            "double-wall insulation. The stainless steel construction "
+            "provides excellent durability and it's dishwasher-safe for "
+            "added convenience.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Clean in the dishwasher or wash by hand with warm water and "
+            "dish soap.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><td>Height</td><td>6.77 in</td></tr>"
+            "<tr><td>Diameter</td><td>2.83–3.39 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "tumbler", "insulated tumbler", "coffee tumbler", "travel mug",
+            "minimalist", "gift", "stainless steel tumbler",
+            "hot cold drink", "everyday use", "drinkware",
+        ],
     },
     "stein_mug": {
         "label": "Ceramic Stein Mug 22oz (dye-sub)",
@@ -196,6 +547,39 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "within center ~85% (avoid outer edges near handle wrap). "
                         "Vintage apothecary aesthetic — irreverentarts style, "
                         "NOT outdoor/Sunfade or coffee/minimalist style.",
+        "target_width": 2250,
+        "target_height": 900,
+        "sample_prompt": "Vintage apothecary-style wraparound label design for a "
+                          "stein mug, [chủ đề] motif, muted earthy palette, "
+                          "elegant vintage typography, full-bleed opaque "
+                          "background (no transparency), key art kept away from "
+                          "outer edges near the handle wrap.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Material: durable white ceramic</li>"
+            "<li>One size: 22oz</li>"
+            "<li>Scratch-resistant, dishwasher and microwave safe</li>"
+            "<li>Ribbed outlines along the mug's top, bottom and handle</li>"
+            "</ul>"
+            "<p>Packed with class and a timeless design, this stein mug "
+            "awaits your custom designs to become a true work of art. Made "
+            "with durable white ceramic, it's both scratch-resistant for "
+            "long-lasting looks and dishwasher-safe for convenient "
+            "cleaning.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Clean in the dishwasher or wash by hand with warm water and "
+            "dish soap.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><td>Height</td><td>6.50 in</td></tr>"
+            "<tr><td>Diameter</td><td>3.70 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "stein mug", "ceramic mug", "apothecary", "vintage mug", "gift",
+            "coffee mug", "beer mug", "unique mug", "home decor",
+        ],
     },
     "pillow_damask": {
         "label": "Outdoor Pillow, double-sided",
@@ -211,11 +595,44 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "placeholder": {"x": 0.5, "y": 0.5, "scale": 0.9554285714285713,
                          "angle": 0, "flipX": False, "flipY": False},
         "decoration_method": "direct-to-fabric",
-        "artwork_spec": "1254x1254 px min (recommend up to ~3225x3225 px) "
-                        "square PNG, full-bleed, no transparency. Same image "
-                        "used for both front and back. Bohemian eclectic "
+        "artwork_spec": "2625x2625 px square PNG, full-bleed, no transparency. "
+                        "Same image used for both front and back. Bohemian eclectic "
                         "wallstoryco style — damask/jewel-tone or stripe "
                         "patterns, warm layered palette.",
+        "target_width": 2625,
+        "target_height": 2625,
+        "sample_prompt": "Bohemian eclectic damask or jewel-tone pattern, warm "
+                          "layered color palette (burgundy, gold, emerald, "
+                          "terracotta), symmetrical repeating motif, square "
+                          "full-bleed composition, no transparency, no photoreal "
+                          "elements.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Material: 100% spun polyester</li>"
+            "<li>Direct-to-fabric printing, double-sided print</li>"
+            "<li>UV ray and water-resistant, sewn seam closure</li>"
+            "<li>Available in 3 sizes: 16x16, 18x18, 20x20</li>"
+            "</ul>"
+            "<p>These custom outdoor pillows are the perfect aesthetic "
+            "uplift for any patio or outdoor space. UV-resistant printed "
+            "colors stay vibrant for a long time, and the water/mildew-"
+            "resistant nature makes them perfect for carefree decorating.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Spot clean only, or dryclean.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><th></th><th>Width</th><th>Height</th></tr>"
+            "<tr><td>16x16</td><td>16 in</td><td>16 in</td></tr>"
+            "<tr><td>18x18</td><td>18 in</td><td>18 in</td></tr>"
+            "<tr><td>20x20</td><td>20 in</td><td>20 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "outdoor pillow", "throw pillow", "bohemian decor", "home decor",
+            "patio decor", "jewel tone", "damask pattern", "gift",
+            "double sided pillow",
+        ],
     },
     "pillow_woven": {
         "label": "Boho Woven Pillow",
@@ -235,6 +652,38 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "reproduce them). Bohemian kilim/Aztec-inspired, "
                         "warm earthy wallstoryco palette. Design is applied "
                         "once and auto-duplicated on both sides.",
+        "target_width": 1728,
+        "target_height": 1824,
+        "sample_prompt": "Bold geometric color-block pattern, kilim/Aztec-"
+                          "inspired bohemian design, warm earthy palette, flat "
+                          "solid color shapes only — no gradients, no fine "
+                          "linework, no photoreal detail, balanced square-ish "
+                          "full-bleed composition.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Woven from 58% cotton and 42% polyester</li>"
+            "<li>One size: 17&quot; x 18&quot; (43.2cm x 45.7cm)</li>"
+            "<li>Polyester fiber filling, blown and closed</li>"
+            "<li>Double-sided design, duplicated on both sides automatically</li>"
+            "</ul>"
+            "<p>These woven pillows make a cozy addition to any living "
+            "space. They feature a double-sided design, poly fill, and are "
+            "blown and closed — the thread is woven tightly to preserve the "
+            "details of the design, creating an heirloom-quality piece of "
+            "home décor.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Spot clean or dry clean only.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><td>Width</td><td>17 in</td></tr>"
+            "<tr><td>Length</td><td>18 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "woven pillow", "throw pillow", "bohemian decor", "home decor",
+            "kilim pattern", "geometric pillow", "gift", "aztec pattern",
+        ],
     },
     "pillow_body": {
         "label": "Body Pillow 20x54, double-sided",
@@ -255,6 +704,41 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "Bohemian southwestern/Aztec wallstoryco style — "
                         "pattern must repeat/balance across the FULL WIDTH, "
                         "not centered with empty sides.",
+        "target_width": 8325,
+        "target_height": 3225,
+        "sample_prompt": "Bohemian southwestern/Aztec pattern that repeats "
+                          "seamlessly across a wide horizontal banner, warm "
+                          "earthy palette, balanced symmetrical composition "
+                          "spanning the full width, no empty side margins, no "
+                          "photoreal elements.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Material: polyester fleece or microfiber cover</li>"
+            "<li>One size: 20&quot; x 54&quot; (50.8cm x 137.16cm)</li>"
+            "<li>Double-sided print, removable cover, hidden zipper</li>"
+            "</ul>"
+            "<p>Offer the comfort and support your customers deserve with "
+            "this all-over print body pillow. Ideal for side sleepers, it "
+            "also makes a great oversized lumbar bolster for a couch or "
+            "living room.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Remove the pillow cover and pre-treat stains with a soft "
+            "cloth or bristle brush soaked in warm, soapy water. Spot clean "
+            "or dry clean. Machine wash cold (max 30°C), gentle cycle, mild "
+            "detergent — cover only, not the filling. Do not bleach. Tumble "
+            "dry low heat — cover only.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><td>Width</td><td>20 in</td></tr>"
+            "<tr><td>Length</td><td>54 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "body pillow", "bohemian decor", "home decor",
+            "southwestern pattern", "aztec pattern", "comfort pillow",
+            "gift", "side sleeper pillow",
+        ],
     },
     "can_glass_engraved": {
         "label": "Can Glass 16oz (laser engraving)",
@@ -274,5 +758,33 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "hairline detail, blurs on glass). metalnestdecor "
                         "modern industrial/metal line-art style, centered "
                         "within ~80% of canvas.",
+        "target_width": 1200,
+        "target_height": 1800,
+        "sample_prompt": "Black and white line art silhouette of [chủ đề], "
+                          "modern industrial/metal aesthetic, bold clean "
+                          "linework (no hairline detail), centered composition, "
+                          "transparent background, no color, no gradients, no "
+                          "photorealistic shading.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Material: clear glass</li>"
+            "<li>One size: 16oz (0.473l)</li>"
+            "<li>Secure lid with reusable straw</li>"
+            "<li>Dishwasher safe</li>"
+            "</ul>"
+            "<p>A fun, contemporary can-shaped glass that fits comfortably "
+            "in your hand. Your design is laser-etched into the glass for "
+            "an elegant, fade-proof, personalized touch — great for iced "
+            "coffees, smoothies, cocktails, and more.</p>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Clean in the dishwasher (top rack) or wash by hand with "
+            "warm water and dish soap.</p>"
+        ),
+        "default_tags": [
+            "etched glass", "engraved glass", "can glass", "industrial decor",
+            "modern gift", "drinkware", "personalized gift", "line art",
+            "minimalist glass",
+        ],
     },
 }

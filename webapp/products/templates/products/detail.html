@@ -2,10 +2,12 @@
 {% block title %}{{ product.title }}{% endblock %}
 {% block content %}
 
+<p><a href="{% url 'library_page' %}" style="text-decoration:none; font-weight:600;">&larr; Quay lại thư viện</a></p>
+
 <div class="card">
   <span class="badge">{% if is_published %}Published{% else %}Draft (chưa lên store){% endif %}</span>
   <h2>{{ product.title }}</h2>
-  <p>{{ product.description|linebreaksbr }}</p>
+  <div class="product-description">{{ product.description|safe }}</div>
   <p><strong>Variants bật:</strong> {{ enabled_variants|join:", " }}</p>
   {% if is_published and storefront_url %}
     <p><a href="{{ storefront_url }}" target="_blank" rel="noopener">Xem trên store →</a></p>

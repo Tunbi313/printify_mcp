@@ -1,0 +1,74 @@
+{% extends "products/base.html" %}
+{% block title %}Upscale ảnh theo Template{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Upscale ảnh theo Template</h2>
+  <p class="tpl-meta">
+    Chọn template, upload ảnh design của bạn. Hệ thống sẽ dùng AI (fal.ai) để
+    upscale ảnh lên đúng kích thước px mà template đó yêu cầu, rồi cho bạn tải về.
+  </p>
+
+  <form method="post" action="{% url 'upscale_page' %}" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    <label for="template">Template</label>
+    <select name="template" id="template" required>
+      <option value="" disabled selected>-- Chọn template --</option>
+      {% for t in templates %}
+        <option value="{{ t.key }}">{{ t.label }} ({{ t.target_width }}x{{ t.target_height }}px)</option>
+      {% endfor %}
+    </select>
+
+    <label for="image">Ảnh design gốc</label>
+    <input type="file" name="image" id="image" accept=".png,.jpg,.jpeg" required>
+
+    <label for="crop_anchor">Vị trí giữ lại khi cắt cho khớp tỉ lệ</label>
+    <select name="crop_anchor" id="crop_anchor">
+      <option value="center">Giữa (mặc định)</option>
+      <option value="top">Trên (khuyên dùng cho ảnh chân dung/mặt người)</option>
+      <option value="bottom">Dưới</option>
+      <option value="left">Trái</option>
+      <option value="right">Phải</option>
+    </select>
+    <div class="tpl-meta">
+      Ảnh sẽ được phóng to rồi cắt cho khớp đúng tỉ lệ template. Nếu ảnh gốc
+      không cùng tỉ lệ, phần bị cắt sẽ nằm ở phía đối diện với lựa chọn trên
+      (vd chọn "Trên" thì giữ phần trên ảnh, cắt bớt phía dưới).
+    </div>
+
+    <label style="margin-top:14px; display:flex; align-items:center; gap:8px; font-weight:600;">
+      <input type="checkbox" name="remove_bg" id="remove_bg" style="width:auto;">
+      Xóa nền bằng AI (cho design cần nền trong suốt: sticker, áo, mũ, can glass...)
+    </label>
+
+    <button type="submit" class="btn-primary" id="submit-btn">Upscale ảnh</button>
+  </form>
+</div>
+
+{% if result_url %}
+<div class="card">
+  <h3>Kết quả: {{ result_label }} ({{ result_width }}x{{ result_height }}px)</h3>
+  {% if not was_upscaled %}
+    <p class="tpl-meta">Ảnh gốc đã đủ lớn, chỉ resize/crop cho khớp size — không cần AI upscale.</p>
+  {% endif %}
+  <div class="images">
+    <img src="{{ result_url }}" alt="Kết quả upscale">
+  </div>
+  <a href="{{ result_url }}" download><button type="button" class="btn-publish">Tải về</button></a>
+</div>
+{% endif %}
+
+<script>
+  const form = document.querySelector('form');
+  const submitBtn = document.getElementById('submit-btn');
+  let submitting = false;
+  form.addEventListener('submit', (e) => {
+    if (submitting) { e.preventDefault(); return; }
+    submitting = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Đang upscale... có thể mất khoảng 1 phút, vui lòng đợi';
+  });
+</script>
+
+{% endblock %}

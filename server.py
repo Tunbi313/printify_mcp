@@ -51,6 +51,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "placeholder": {"x": 0.5, "y": 0.5, "scale": 0.9956715564046932,
                          "angle": 0, "flipX": False, "flipY": False},
         "artwork_spec": "7200x10800 px PNG, 2:3, sRGB, full-bleed",
+        "sample_prompt": "Retro national park travel poster of [địa danh outdoor], "
+                          "bold sunburst sky, warm earthy palette (rust, mustard, "
+                          "teal), flat vector illustration, vintage WPA poster "
+                          "style, no text, no logos, full-bleed edge-to-edge "
+                          "composition, 2:3 vertical portrait.",
     },
 
     # Classic Stretched Canvas — Colorway (rating 8.6, ~1.1-day production, USA)
@@ -70,6 +75,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                          "angle": 0, "flipX": False, "flipY": False},
         "artwork_spec": "7200x10800 px PNG, 2:3, sRGB, full-bleed "
                         "(same file as poster; keep key detail away from canvas fold edges)",
+        "sample_prompt": "Retro national park travel poster of [địa danh outdoor], "
+                          "bold sunburst sky, warm earthy palette (rust, mustard, "
+                          "teal), flat vector illustration, vintage WPA poster "
+                          "style, no text, no logos, key details kept away from "
+                          "outer edges, 2:3 vertical portrait.",
     },
 
     # Square Stickers — SPOKE Custom Products (rating 9.3, <1-day production, USA)
@@ -90,6 +100,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "uv",
         "artwork_spec": "1800x1800 px PNG, 1:1 square, transparent background "
                         "for die-cut (badge centered with margin). NOT the poster file.",
+        "sample_prompt": "Die-cut badge sticker illustration of [chủ đề outdoor "
+                          "icon], bold clean outline, flat vector style, vibrant "
+                          "retro color palette, centered composition with even "
+                          "margin around edges, transparent background, no "
+                          "gradients, no text.",
     },
 
     # Ceramic Mug 11oz — SPOKE Custom Products (rating 9.3, <1-day, USA)
@@ -106,6 +121,10 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "dye-sublimation",
         "artwork_spec": "2700x1119 px PNG, 2.41:1 wide banner (wraparound). "
                         "Keep main subject centered; edges simple. NOT the poster file.",
+        "sample_prompt": "Wraparound mug graphic of [chủ đề outdoor scene], retro "
+                          "travel poster illustration style, warm earthy palette, "
+                          "wide horizontal panoramic composition, subject centered, "
+                          "simple seamless edges, no text near the handle seam.",
     },
 
     # Unisex Softstyle T-Shirt (Gildan 64000) — provider 99
@@ -148,6 +167,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "centered. Front and/or back via images_by_position. "
                         "For dark colors (black/maroon/indigo) use a design with "
                         "a light outline so it stays visible.",
+        "sample_prompt": "Front chest graphic design of [chủ đề outdoor icon], "
+                          "bold retro illustration, flat vector style with a "
+                          "light outline for visibility on dark fabric, centered "
+                          "composition, transparent background, no background "
+                          "elements, no text.",
     },
     # Trucker Hat — Duplium (rating 9.1). DTF print, front panel. 1 size, 5 colors.
     # Base+ship high -> margin ~42% at $28.99 (Premium). Price in cents.
@@ -166,6 +190,10 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "dtf",
         "artwork_spec": "1650x750 px PNG, 2.2:1 wide, transparent background, "
                         "badge centered. DTF has white underbase. NOT the poster file.",
+        "sample_prompt": "Small badge-style patch design of [chủ đề outdoor icon], "
+                          "bold flat vector illustration, thick clean outlines, "
+                          "high contrast colors, compact centered composition, "
+                          "transparent background, wide badge layout, no text.",
     },
     # Embroidery Dad Hat (Adventure Awaits style) — provider 99. Front embroidery.
     # 4 positions available: front, back_hat_embroidery, left/right. Use front (+back optional).
@@ -184,6 +212,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "embroidery",
         "artwork_spec": "TEXT ONLY (no images). Front 1650x600 px, Back 600x300 px. "
                         "Transparent PNG, thread color matches cap (dark cap=cream, light cap=brown).",
+        "sample_prompt": "Minimalist single-color embroidered lettering, slogan "
+                          "'ADVENTURE AWAITS' (or similar outdoor slogan), thin "
+                          "elegant serif or script typography, no icons or "
+                          "images, transparent background, thread color cream "
+                          "on dark cap / brown on light cap.",
     },
 
     # Embroidery Vintage Cap (Stay Wild style) — provider 99, blueprint 1736.
@@ -203,6 +236,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "decoration_method": "embroidery",
         "artwork_spec": "TEXT ONLY (no images). Front 1650x600 px, Back 600x300 px. "
                         "Transparent PNG, thread color matches cap (dark cap=cream, light/pink cap=brown).",
+        "sample_prompt": "Minimalist single-color embroidered lettering, slogan "
+                          "'STAY WILD' (or similar outdoor slogan), thin elegant "
+                          "vintage script typography, no icons or images, "
+                          "transparent background, thread color cream on dark "
+                          "cap / brown on pink cap.",
     },
     # Scented Soy Candle 9oz — provider 219, blueprint 1048. irreverentarts store.
     # Variants = SCENTS (not size). Label print area 900x600. Margin thin (mồi GMC).
@@ -218,6 +256,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                          "angle": 0, "flipX": False, "flipY": False},
         "artwork_spec": "900x600 px PNG, 3:2 horizontal label (wraps around jar). "
                         "Apothecary/minimalist candle aesthetic — NOT outdoor/Sunfade style.",
+        "sample_prompt": "Apothecary-style candle label design, minimalist "
+                          "botanical illustration, [tên mùi hương] theme, muted "
+                          "earthy palette (sage, cream, terracotta), elegant "
+                          "serif typography, horizontal wraparound layout, no "
+                          "outdoor/national park elements.",
     },
     # SPOKE Tumbler 20oz — provider 1, blueprint 353. metalnestdecor store.
     # 1 variant 20oz. Wraparound label 2795x2100. Coffee/drink theme (NOT Sunfade).
@@ -231,6 +274,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                          "angle": 0, "flipX": False, "flipY": False},
         "artwork_spec": "2795x2100 px PNG, 1.33:1 wraparound. Coffee/drink/minimalist "
                         "aesthetic — NOT outdoor/Sunfade style.",
+        "sample_prompt": "Wraparound tumbler graphic, minimalist coffee/drink "
+                          "line art illustration, [chủ đề] theme, muted modern "
+                          "palette (charcoal, cream, warm brown), horizontal "
+                          "seamless wrap composition, no outdoor/national park "
+                          "elements.",
     },
      # Ceramic Stein Mug 22oz — Duplium (provider 41), blueprint 891.
     # irreverentarts store. Vintage apothecary label, dye-sublimation wrap.
@@ -249,6 +297,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "within center ~85% (avoid outer edges near handle wrap). "
                         "Vintage apothecary aesthetic — irreverentarts style, "
                         "NOT outdoor/Sunfade or coffee/minimalist style.",
+        "sample_prompt": "Vintage apothecary-style wraparound label design for a "
+                          "stein mug, [chủ đề] motif, muted earthy palette, "
+                          "elegant vintage typography, full-bleed opaque "
+                          "background (no transparency), key art kept away from "
+                          "outer edges near the handle wrap.",
     },
     # Outdoor Pillow (Damask) — provider 10, blueprint 1007. wallstoryco store.
     # Double-sided (front+back use same square image), direct-to-fabric.
@@ -266,11 +319,15 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "placeholder": {"x": 0.5, "y": 0.5, "scale": 0.9554285714285713,
                          "angle": 0, "flipX": False, "flipY": False},
         "decoration_method": "direct-to-fabric",
-        "artwork_spec": "1254x1254 px min (recommend up to ~3225x3225 px) "
-                        "square PNG, full-bleed, no transparency. Same image "
-                        "used for both front and back. Bohemian eclectic "
+        "artwork_spec": "2625x2625 px square PNG, full-bleed, no transparency. "
+                        "Same image used for both front and back. Bohemian eclectic "
                         "wallstoryco style — damask/jewel-tone or stripe "
                         "patterns, warm layered palette.",
+        "sample_prompt": "Bohemian eclectic damask or jewel-tone pattern, warm "
+                          "layered color palette (burgundy, gold, emerald, "
+                          "terracotta), symmetrical repeating motif, square "
+                          "full-bleed composition, no transparency, no photoreal "
+                          "elements.",
     },
     # Boho Woven Pillow — provider 10, blueprint 1650. wallstoryco store.
     # Single size 17x18, WEAVING decoration (not printed — bold color-block
@@ -295,6 +352,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "reproduce them). Bohemian kilim/Aztec-inspired, "
                         "warm earthy wallstoryco palette. Design is applied "
                         "once and auto-duplicated on both sides.",
+        "sample_prompt": "Bold geometric color-block pattern, kilim/Aztec-"
+                          "inspired bohemian design, warm earthy palette, flat "
+                          "solid color shapes only — no gradients, no fine "
+                          "linework, no photoreal detail, balanced square-ish "
+                          "full-bleed composition.",
     },
     # Body Pillow 20x54 (Southwestern Aztec) — provider 10, blueprint 2758.
     # wallstoryco store. Double-sided, SAME image on front+back (explicit
@@ -319,6 +381,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "Bohemian southwestern/Aztec wallstoryco style — "
                         "pattern must repeat/balance across the FULL WIDTH, "
                         "not centered with empty sides.",
+        "sample_prompt": "Bohemian southwestern/Aztec pattern that repeats "
+                          "seamlessly across a wide horizontal banner, warm "
+                          "earthy palette, balanced symmetrical composition "
+                          "spanning the full width, no empty side margins, no "
+                          "photoreal elements.",
     },
     # Can Glass 16oz (Engraving) — provider 228, blueprint 2759.
     # metalnestdecor store. CO2 laser engraving — single-tone line art only,
@@ -340,6 +407,11 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "hairline detail, blurs on glass). metalnestdecor "
                         "modern industrial/metal line-art style, centered "
                         "within ~80% of canvas.",
+        "sample_prompt": "Black and white line art silhouette of [chủ đề], "
+                          "modern industrial/metal aesthetic, bold clean "
+                          "linework (no hairline detail), centered composition, "
+                          "transparent background, no color, no gradients, no "
+                          "photorealistic shading.",
     },
     
 
@@ -404,7 +476,8 @@ def list_templates() -> dict:
     return {name: {"blueprint_id": t["blueprint_id"],
                    "print_provider_id": t["print_provider_id"],
                    "sizes": [v["label"] for v in t["variants"]],
-                   "artwork_spec": t["artwork_spec"]}
+                   "artwork_spec": t["artwork_spec"],
+                   "sample_prompt": t.get("sample_prompt", "")}
             for name, t in TEMPLATES.items()}
 
 

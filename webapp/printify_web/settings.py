@@ -30,7 +30,7 @@ SECRET_KEY = 'django-insecure-b4y74%be%0eju2bpvrm=m$zcosff8@*2bgxq&0f=h+drlcab-9
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['0.0.0.0', 'localhost', '127.0.0.1']
 
 
 # Application definition
@@ -121,6 +121,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Upscaled artwork results are saved here so they can be downloaded.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Design files (posters etc.) can be several MB; raise the default 2.5MB cap.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024

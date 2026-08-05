@@ -107,8 +107,20 @@ def create_from_template(tpl: dict, image_id: str, title: str, description: str,
     return _request("POST", f"/shops/{shop_id}/products.json", json=payload)
 
 
+def get_blueprint_images(blueprint_id: int) -> list[str]:
+    """Generic sample mockup image URLs for a blueprint, from Printify's public
+    catalog (blank product photos — not tied to any product we've created)."""
+    blueprint = _request("GET", f"/catalog/blueprints/{blueprint_id}.json")
+    return list(blueprint.get("images") or [])
+
+
 def get_product(product_id: str, shop_id: str) -> dict:
     return _request("GET", f"/shops/{shop_id}/products/{product_id}.json")
+
+
+def list_products(shop_id: str, limit: int = 50) -> list[dict]:
+    result = _request("GET", f"/shops/{shop_id}/products.json?limit={limit}")
+    return result.get("data", [])
 
 
 def publish_product(product_id: str, shop_id: str) -> dict:
