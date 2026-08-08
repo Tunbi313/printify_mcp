@@ -13,6 +13,7 @@ from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.urls import reverse
 
+from . import fal_studio
 from . import fal_upscale
 from . import openrouter_client
 from . import printify_client as pc
@@ -95,6 +96,7 @@ def template_images(request, key):
 
 
 CROP_ANCHORS = {"center", "top", "bottom", "left", "right"}
+STUDIO_MAX_WORKING_DIM = 1600  # fal-ai/bria/expand caps canvas area at 5000x5000px
 
 
 def _fit_cover(img: Image.Image, target_w: int, target_h: int, anchor: str = "center") -> Image.Image:
@@ -199,6 +201,176 @@ def upscale_page(request):
         "was_upscaled": needed_scale > 1.02,
     }
     return render(request, "products/upscale.html", context)
+
+
+def _bytes_to_data_url(data: bytes, content_type: str = "image/png") -> str:
+    b64 = base64.b64encode(data).decode()
+    return f"data:{content_type};base64,{b64}"
+
+
+def _crop_to_content(img: Image.Image) -> Image.Image:
+    """Crop transparent padding down to the actual subject, using the alpha
+    channel's bounding box. No-op for images without transparency."""
+    if img.mode != "RGBA":
+        return img
+    bbox = img.getbbox()
+    return img.crop(bbox) if bbox else img
+
+
+def _compute_expand_canvas(w: int, h: int, target_w: int, target_h: int):
+    """Given a current image size and a target aspect ratio, compute the
+    smallest canvas (>= current size) with that exact ratio, and the
+    (x, y) offset to center the original image within it."""
+    target_ratio = target_w / target_h
+    current_ratio = w / h
+    if current_ratio > target_ratio:
+        canvas_w, canvas_h = w, round(w / target_ratio)
+    else:
+        canvas_w, canvas_h = round(h * target_ratio), h
+    pad_x = (canvas_w - w) // 2
+    pad_y = (canvas_h - h) // 2
+    return canvas_w, canvas_h, pad_x, pad_y
+
+
+def ai_studio_page(request):
+    styles = [{"key": k, "label": v["label"]} for k, v in fal_studio.STYLE_PRESETS.items()]
+    templates = [
+        {"key": key, "label": t["label"],
+         "target_width": t["target_width"], "target_height": t["target_height"]}
+        for key, t in TEMPLATES.items()
+        if t.get("target_width")
+    ]
+    return render(request, "products/ai_studio.html", {"styles": styles, "templates": templates})
+
+
+def studio_restyle(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+    image_file = request.FILES.get("image")
+    style_key = request.POST.get("style")
+    if not image_file:
+        return JsonResponse({"error": "Chưa có ảnh để xử lý."}, status=400)
+    if not style_key:
+        return JsonResponse({"error": "Bạn chưa chọn style."}, status=400)
+    try:
+        raw = image_file.read()
+        content_type = image_file.content_type or "image/png"
+        result_bytes = fal_studio.restyle_image(raw, content_type, style_key)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+    return JsonResponse({"image_data_url": _bytes_to_data_url(result_bytes)})
+
+
+def studio_remove_bg(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+    image_file = request.FILES.get("image")
+    if not image_file:
+        return JsonResponse({"error": "Chưa có ảnh để xử lý."}, status=400)
+    try:
+        raw = image_file.read()
+        content_type = image_file.content_type or "image/png"
+        result_bytes = fal_upscale.remove_background(raw, content_type)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+    return JsonResponse({"image_data_url": _bytes_to_data_url(result_bytes)})
+
+
+def studio_resize(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+    image_file = request.FILES.get("image")
+    tpl = TEMPLATES.get(request.POST.get("template"))
+    if not image_file:
+        return JsonResponse({"error": "Chưa có ảnh để xử lý."}, status=400)
+    if not tpl or not tpl.get("target_width"):
+        return JsonResponse({"error": "Template không hợp lệ."}, status=400)
+
+    target_w, target_h = tpl["target_width"], tpl["target_height"]
+    needs_transparent = bool(tpl.get("transparent_bg"))
+    try:
+        raw = image_file.read()
+        img = Image.open(io.BytesIO(raw))
+        img.load()
+        img = _crop_to_content(img)
+
+        if needs_transparent:
+            # Outpainting can't produce transparency — the model always
+            # paints SOME pixels into the expanded area, even from a
+            # transparent input (it flattens to black/white first). For
+            # templates that need a transparent background, fit the
+            # subject inside the canvas instead of filling it, and pad the
+            # remainder with real transparency (no AI, no cropping).
+            if img.mode != "RGBA":
+                img = img.convert("RGBA")
+
+            w, h = img.size
+            needed_scale = min(target_w / w, target_h / h)
+            if needed_scale > 1.02:
+                # fal-ai/esrgan drops the alpha channel entirely (returns
+                # plain RGB, with transparent areas rendered as black) —
+                # upscale the RGB and alpha separately and recombine rather
+                # than trusting it to preserve transparency.
+                alpha_channel = img.getchannel("A")
+                rgb_buf = io.BytesIO()
+                img.convert("RGB").save(rgb_buf, format="PNG")
+                upscaled_bytes = fal_upscale.upscale_image(rgb_buf.getvalue(), "image/png", needed_scale)
+                upscaled_rgb = Image.open(io.BytesIO(upscaled_bytes)).convert("RGB")
+                upscaled_rgb.load()
+                upscaled_alpha = alpha_channel.resize(upscaled_rgb.size, Image.LANCZOS)
+                img = Image.merge("RGBA", (*upscaled_rgb.split(), upscaled_alpha))
+
+            # Safety clamp in case the upscaler overshoots either axis.
+            if img.width > target_w or img.height > target_h:
+                img.thumbnail((target_w, target_h), Image.LANCZOS)
+
+            final_img = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
+            paste_x = (target_w - img.width) // 2
+            paste_y = (target_h - img.height) // 2
+            final_img.paste(img, (paste_x, paste_y), img)
+        else:
+            # The outpaint model caps canvas area at 5000x5000px — work at
+            # a smaller resolution here and upscale back up after.
+            if max(img.size) > STUDIO_MAX_WORKING_DIM:
+                img.thumbnail((STUDIO_MAX_WORKING_DIM, STUDIO_MAX_WORKING_DIM), Image.LANCZOS)
+
+            w, h = img.size
+            canvas_w, canvas_h, pad_x, pad_y = _compute_expand_canvas(w, h, target_w, target_h)
+
+            if (canvas_w, canvas_h) != (w, h):
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                expanded_bytes = fal_studio.outpaint_to_canvas(
+                    buf.getvalue(), "image/png", w, h, canvas_w, canvas_h, pad_x, pad_y,
+                )
+                img = Image.open(io.BytesIO(expanded_bytes))
+                img.load()
+
+            # Final step: upscale (existing ESRGAN pipeline) to the exact
+            # print-resolution pixel size the template requires.
+            cur_w, cur_h = img.size
+            needed_scale = max(target_w / cur_w, target_h / cur_h)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            working_bytes = buf.getvalue()
+            if needed_scale > 1.02:
+                working_bytes = fal_upscale.upscale_image(working_bytes, "image/png", needed_scale)
+
+            final_img = Image.open(io.BytesIO(working_bytes))
+            final_img.load()
+            final_img = _fit_cover(final_img, target_w, target_h, "center")
+            if final_img.mode not in ("RGB", "RGBA", "L", "LA"):
+                final_img = final_img.convert("RGBA")
+
+        out_buf = io.BytesIO()
+        final_img.save(out_buf, format="PNG")
+        filename = f"studio/{uuid.uuid4().hex[:8]}.png"
+        saved_path = default_storage.save(filename, ContentFile(out_buf.getvalue()))
+        result_url = default_storage.url(saved_path)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+
+    return JsonResponse({"image_url": result_url, "width": target_w, "height": target_h})
 
 
 def batch_page(request):

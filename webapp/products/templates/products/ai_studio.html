@@ -1,0 +1,223 @@
+{% extends "products/base.html" %}
+{% block title %}AI Studio{% endblock %}
+{% block content %}
+
+{% csrf_token %}
+<div class="card">
+  <h2>AI Studio</h2>
+  <p class="tpl-meta">
+    Upload 1 ảnh bất kỳ, rồi bấm các nút bên dưới theo thứ tự bạn muốn — mỗi
+    nút luôn xử lý trên <strong>kết quả mới nhất</strong> (không phải luôn là
+    ảnh gốc). Bỏ qua bước nào cũng được. Mỗi bước có ô hiển thị kết quả riêng
+    để bạn so sánh. Nền caro ca-rô = vùng ảnh trong suốt thật (không phải màu
+    đen).
+  </p>
+
+  <label for="studio-image">Ảnh gốc</label>
+  <input type="file" id="studio-image" accept=".png,.jpg,.jpeg">
+
+  <div class="images checkerboard" style="display:inline-flex; margin-top:16px; padding:4px; border-radius:8px;">
+    <img id="original-preview" src="" alt="Ảnh gốc" style="width:200px; display:none;">
+  </div>
+  <div class="tpl-meta" id="studio-status"></div>
+</div>
+
+<div class="card">
+  <h3>1. Redesign theo phong cách (tùy chọn)</h3>
+  <div id="style-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px;">
+    {% for s in styles %}
+      <button type="button" class="btn-secondary style-btn" data-style="{{ s.key }}"
+              style="padding:10px; text-align:left;">{{ s.label }}</button>
+    {% endfor %}
+  </div>
+  <button type="button" class="btn-primary" id="redesign-btn" style="margin-top:14px;" disabled>
+    🎨 Redesign
+  </button>
+  <span class="tpl-meta" id="selected-style-label"></span>
+
+  <div class="images checkerboard" style="display:inline-flex; margin-top:14px; padding:4px; border-radius:8px;">
+    <img id="redesign-preview" src="" alt="Kết quả redesign" style="width:240px; display:none;">
+  </div>
+</div>
+
+<div class="card">
+  <h3>2. Xóa nền (tùy chọn)</h3>
+  <p class="tpl-meta">Chạy trên kết quả mới nhất — nếu bạn vừa Redesign, sẽ xóa nền trên bản đã redesign.</p>
+  <button type="button" class="btn-secondary" id="removebg-btn">✂️ Xóa nền</button>
+
+  <div class="images checkerboard" style="display:inline-flex; margin-top:14px; padding:4px; border-radius:8px;">
+    <img id="removebg-preview" src="" alt="Kết quả xóa nền" style="width:240px; display:none;">
+  </div>
+</div>
+
+<div class="card">
+  <h3>3. Resize đúng theo Template</h3>
+  <p class="tpl-meta">
+    Với template cần nền đầy (poster, mug, candle...): AI vẽ thêm nền xung
+    quanh (outpaint) cho đủ tỉ lệ, không cắt mất nội dung. Với template cần
+    nền trong suốt (sticker, áo, mũ, can glass): giữ nguyên trong suốt, canh
+    giữa, không outpaint. Mỗi lần resize thêm 1 kết quả vào danh sách dưới,
+    resize nhiều template khác nhau thoải mái.
+  </p>
+  <select id="template-select">
+    <option value="" disabled selected>-- Chọn template --</option>
+    {% for t in templates %}
+      <option value="{{ t.key }}">{{ t.label }} ({{ t.target_width }}x{{ t.target_height }}px)</option>
+    {% endfor %}
+  </select>
+  <button type="button" class="btn-primary" id="resize-btn" style="margin-top:10px;">
+    📐 Resize theo Template
+  </button>
+
+  <div id="resize-results" style="display:flex; flex-wrap:wrap; gap:16px; margin-top:16px;"></div>
+</div>
+
+<script>
+  const imageInput = document.getElementById('studio-image');
+  const originalPreview = document.getElementById('original-preview');
+  const redesignPreview = document.getElementById('redesign-preview');
+  const removeBgPreview = document.getElementById('removebg-preview');
+  const status = document.getElementById('studio-status');
+  const styleButtons = document.querySelectorAll('.style-btn');
+  const redesignBtn = document.getElementById('redesign-btn');
+  const selectedStyleLabel = document.getElementById('selected-style-label');
+  const removeBgBtn = document.getElementById('removebg-btn');
+  const templateSelect = document.getElementById('template-select');
+  const resizeBtn = document.getElementById('resize-btn');
+  const resizeResults = document.getElementById('resize-results');
+
+  let currentBlob = null;   // always the latest result — input for the next action
+  let selectedStyle = null;
+  const csrfToken = document.querySelector('input[name=csrfmiddlewaretoken]').value;
+
+  async function setCurrentBlobFromUrl(srcUrl) {
+    const resp = await fetch(srcUrl);
+    currentBlob = await resp.blob();
+  }
+
+  imageInput.addEventListener('change', () => {
+    if (!imageInput.files.length) return;
+    const file = imageInput.files[0];
+    currentBlob = file;
+    originalPreview.src = URL.createObjectURL(file);
+    originalPreview.style.display = 'block';
+    status.textContent = 'Đã tải ảnh gốc.';
+  });
+
+  styleButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      styleButtons.forEach(b => b.style.outline = 'none');
+      btn.style.outline = '2px solid #2563eb';
+      selectedStyle = btn.dataset.style;
+      selectedStyleLabel.textContent = `Đã chọn: ${btn.textContent}`;
+      redesignBtn.disabled = false;
+    });
+  });
+
+  // Only one pipeline action (redesign / remove-bg / resize) may run at a
+  // time — each reads `currentBlob` and then reassigns it, so overlapping
+  // clicks would race on which result actually lands as "current".
+  const actionButtons = [redesignBtn, removeBgBtn, resizeBtn];
+
+  function setBusy(btn, busyText) {
+    actionButtons.forEach(b => { if (b !== btn) b.disabled = true; });
+    btn.disabled = true;
+    btn.dataset.originalText = btn.textContent;
+    btn.textContent = busyText;
+  }
+  function clearBusy(btn) {
+    actionButtons.forEach(b => { b.disabled = false; });
+    if (btn.dataset.originalText) btn.textContent = btn.dataset.originalText;
+    if (!selectedStyle) redesignBtn.disabled = true; // keep its own precondition
+  }
+
+  redesignBtn.addEventListener('click', async () => {
+    if (!currentBlob) { status.textContent = 'Bạn cần chọn ảnh trước.'; return; }
+    if (!selectedStyle) { status.textContent = 'Bạn cần chọn 1 style trước.'; return; }
+
+    setBusy(redesignBtn, 'Đang redesign... (có thể mất 20-40s)');
+    status.textContent = 'AI đang vẽ lại ảnh theo phong cách đã chọn...';
+
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrfToken);
+    formData.append('image', currentBlob, 'image.png');
+    formData.append('style', selectedStyle);
+
+    try {
+      const r = await fetch('{% url "studio_restyle" %}', { method: 'POST', body: formData });
+      const data = await r.json();
+      if (data.error) { status.textContent = `Lỗi: ${data.error}`; return; }
+      redesignPreview.src = data.image_data_url;
+      redesignPreview.style.display = 'block';
+      await setCurrentBlobFromUrl(data.image_data_url);
+      status.textContent = 'Đã redesign xong.';
+    } catch (e) {
+      status.textContent = 'Lỗi khi gọi AI redesign.';
+    } finally {
+      clearBusy(redesignBtn);
+    }
+  });
+
+  removeBgBtn.addEventListener('click', async () => {
+    if (!currentBlob) { status.textContent = 'Bạn cần chọn ảnh trước.'; return; }
+
+    setBusy(removeBgBtn, 'Đang xóa nền...');
+    status.textContent = 'AI đang xóa nền...';
+
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrfToken);
+    formData.append('image', currentBlob, 'image.png');
+
+    try {
+      const r = await fetch('{% url "studio_remove_bg" %}', { method: 'POST', body: formData });
+      const data = await r.json();
+      if (data.error) { status.textContent = `Lỗi: ${data.error}`; return; }
+      removeBgPreview.src = data.image_data_url;
+      removeBgPreview.style.display = 'block';
+      await setCurrentBlobFromUrl(data.image_data_url);
+      status.textContent = 'Đã xóa nền xong.';
+    } catch (e) {
+      status.textContent = 'Lỗi khi gọi AI xóa nền.';
+    } finally {
+      clearBusy(removeBgBtn);
+    }
+  });
+
+  resizeBtn.addEventListener('click', async () => {
+    if (!currentBlob) { status.textContent = 'Bạn cần chọn ảnh trước.'; return; }
+    if (!templateSelect.value) { status.textContent = 'Bạn cần chọn template trước.'; return; }
+
+    const templateLabel = templateSelect.selectedOptions[0].textContent;
+    setBusy(resizeBtn, 'Đang resize... (có thể mất 30-60s)');
+    status.textContent = 'Đang resize đúng theo template...';
+
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', csrfToken);
+    formData.append('image', currentBlob, 'image.png');
+    formData.append('template', templateSelect.value);
+
+    try {
+      const r = await fetch('{% url "studio_resize" %}', { method: 'POST', body: formData });
+      const data = await r.json();
+      if (data.error) { status.textContent = `Lỗi: ${data.error}`; return; }
+
+      const item = document.createElement('div');
+      item.className = 'card checkerboard';
+      item.style.cssText = 'padding:10px; margin-bottom:0; width:220px;';
+      item.innerHTML = `
+        <img src="${data.image_url}" alt="${templateLabel}" style="width:100%; border-radius:6px;">
+        <p style="font-size:0.85rem; font-weight:600; margin:8px 0 2px;">${templateLabel}</p>
+        <p class="tpl-meta" style="margin:0 0 8px;">${data.width}x${data.height}px</p>
+        <a href="${data.image_url}" download><button type="button" class="btn-publish" style="width:100%; padding:6px; font-size:0.8rem;">Tải về</button></a>
+      `;
+      resizeResults.prepend(item);
+      status.textContent = `Xong — ${templateLabel} (${data.width}x${data.height}px).`;
+    } catch (e) {
+      status.textContent = 'Lỗi khi resize theo template.';
+    } finally {
+      clearBusy(resizeBtn);
+    }
+  });
+</script>
+
+{% endblock %}

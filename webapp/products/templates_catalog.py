@@ -125,6 +125,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "for die-cut (badge centered with margin). NOT the poster file.",
         "target_width": 1800,
         "target_height": 1800,
+        "transparent_bg": True,
         "sample_prompt": "Die-cut badge sticker illustration of [chủ đề outdoor "
                           "icon], bold clean outline, flat vector style, vibrant "
                           "retro color palette, centered composition with even "
@@ -244,6 +245,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "a light outline so it stays visible.",
         "target_width": 3852,
         "target_height": 4398,
+        "transparent_bg": True,
         "sample_prompt": "Front chest graphic design of [chủ đề outdoor icon], "
                           "bold retro illustration, flat vector style with a "
                           "light outline for visibility on dark fabric, centered "
@@ -298,6 +300,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "badge centered. DTF has white underbase. NOT the poster file.",
         "target_width": 1650,
         "target_height": 750,
+        "transparent_bg": True,
         "sample_prompt": "Small badge-style patch design of [chủ đề outdoor icon], "
                           "bold flat vector illustration, thick clean outlines, "
                           "high contrast colors, compact centered composition, "
@@ -760,6 +763,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "within ~80% of canvas.",
         "target_width": 1200,
         "target_height": 1800,
+        "transparent_bg": True,
         "sample_prompt": "Black and white line art silhouette of [chủ đề], "
                           "modern industrial/metal aesthetic, bold clean "
                           "linework (no hairline detail), centered composition, "

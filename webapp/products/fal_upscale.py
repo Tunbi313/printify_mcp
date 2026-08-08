@@ -11,7 +11,7 @@ import fal_client
 import httpx
 
 UPSCALE_MODEL = "fal-ai/esrgan"
-REMOVE_BG_MODEL = "fal-ai/imageutils/rembg"
+REMOVE_BG_MODEL = "fal-ai/birefnet/v2"  # much better hair/fine-edge matting than basic rembg
 MAX_SCALE_PER_CALL = 8.0
 MAX_CALLS = 4  # 8x chained 4 times = 4096x ceiling, plenty of headroom
 
