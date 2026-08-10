@@ -16,7 +16,7 @@
   <div id="videos-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:16px; margin-top:16px;">
     {% for v in videos %}
     <div class="card" style="padding:10px; margin-bottom:0;" data-video-card>
-      <video src="{{ v.url }}" controls style="width:100%; border-radius:6px; border:1px solid #ddd; display:block; background:#000;"></video>
+      <video src="{{ v.url }}" controls style="width:100%; border-radius:6px; border:1px solid var(--border); display:block; background:#000;"></video>
       <p style="font-size:0.8rem; font-weight:600; margin:8px 0 2px;">
         <a href="{% url 'product_detail' v.product_id %}" style="text-decoration:none;">{{ v.product_title|default:"(sản phẩm đã xóa)" }}</a>
       </p>

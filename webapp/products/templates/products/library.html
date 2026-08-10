@@ -19,9 +19,9 @@
     <div class="card" style="padding:12px; margin-bottom:0;" data-product-card>
       <a href="{% url 'product_detail' d.id %}">
         {% if d.thumb %}
-          <img src="{{ d.thumb }}" alt="{{ d.title }}" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid #ddd;">
+          <img src="{{ d.thumb }}" alt="{{ d.title }}" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid var(--border);">
         {% else %}
-          <div style="width:100%; aspect-ratio:1; border-radius:6px; border:1px solid #ddd; display:flex; align-items:center; justify-content:center; color:#999; font-size:0.8rem;">Chưa có ảnh</div>
+          <div style="width:100%; aspect-ratio:1; border-radius:6px; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; color:var(--ink-faint); font-size:0.8rem;">Chưa có ảnh</div>
         {% endif %}
       </a>
       <p style="font-size:0.85rem; font-weight:600; margin:8px 0 4px;">

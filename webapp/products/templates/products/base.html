@@ -5,121 +5,385 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Sunfade Printify{% endblock %}</title>
   <style>
-    :root { color-scheme: light dark; }
-    body {
-      font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 24px 16px 64px;
-      background: #fafafa;
-      color: #1a1a1a;
+    :root {
+      color-scheme: light dark;
+      --ground: #efe9dd;
+      --surface: #fbf8f2;
+      --surface-2: #f2ebdc;
+      --border: #ddd0b6;
+      --ink: #2b241c;
+      --ink-muted: #6b6154;
+      --ink-faint: #9a8f79;
+      --rust: #bf5b37;
+      --rust-ink: #fff9f2;
+      --pine: #2f6b5e;
+      --pine-ink: #f2fbf8;
+      --mustard: #c99a2e;
+      --mustard-ink: #2b2004;
+      --danger: #b23a3a;
+      --danger-ink: #fff5f2;
+      --success: #3f7d4e;
+      --success-ink: #f2fbf5;
+      --focus: #2f6b5e;
+      --shadow: 0 1px 2px rgba(43,36,28,0.06), 0 6px 16px rgba(43,36,28,0.07);
     }
     @media (prefers-color-scheme: dark) {
-      body { background: #121212; color: #eaeaea; }
-      input, select, textarea { background: #1e1e1e !important; color: #eaeaea !important; border-color: #444 !important; }
-      .card { background: #1a1a1a !important; border-color: #333 !important; }
+      :root:not([data-theme="light"]) {
+        --ground: #1c1712;
+        --surface: #221c15;
+        --surface-2: #171310;
+        --border: #3a3025;
+        --ink: #ede6d8;
+        --ink-muted: #b6ab97;
+        --ink-faint: #7d7362;
+        --rust: #e07a52;
+        --rust-ink: #241305;
+        --pine: #62b09d;
+        --pine-ink: #0a1a16;
+        --mustard: #e0b563;
+        --mustard-ink: #fbead0;
+        --danger: #e2685f;
+        --danger-ink: #250908;
+        --success: #7bc48d;
+        --success-ink: #0c1f10;
+        --focus: #62b09d;
+        --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 20px rgba(0,0,0,0.35);
+      }
     }
-    h1 { font-size: 1.4rem; }
+    :root[data-theme="dark"] {
+      --ground: #1c1712;
+      --surface: #221c15;
+      --surface-2: #171310;
+      --border: #3a3025;
+      --ink: #ede6d8;
+      --ink-muted: #b6ab97;
+      --ink-faint: #7d7362;
+      --rust: #e07a52;
+      --rust-ink: #241305;
+      --pine: #62b09d;
+      --pine-ink: #0a1a16;
+      --mustard: #e0b563;
+      --mustard-ink: #fbead0;
+      --danger: #e2685f;
+      --danger-ink: #250908;
+      --success: #7bc48d;
+      --success-ink: #0c1f10;
+      --focus: #62b09d;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 20px rgba(0,0,0,0.35);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--ground);
+      color: var(--ink);
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3 {
+      font-family: Cambria, Georgia, "Times New Roman", serif;
+      text-wrap: balance;
+      margin: 0 0 6px;
+    }
     a { color: inherit; }
-    .card {
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      border-radius: 10px;
-      padding: 20px;
-      margin-bottom: 16px;
+    code { font-family: Consolas, "SF Mono", monospace; }
+
+    /* ---------- Shell layout ---------- */
+    .shell { display: grid; grid-template-columns: 246px 1fr; min-height: 100vh; }
+
+    .rail {
+      background: var(--surface-2);
+      border-right: 1px solid var(--border);
+      padding: 20px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
     }
-    label { display: block; font-weight: 600; margin: 14px 0 4px; font-size: 0.9rem; }
-    input[type=text], input[type=file], select, textarea {
-      width: 100%;
+    .brand {
+      display: flex; align-items: center; gap: 10px;
+      padding: 0 6px 6px;
+      text-decoration: none;
+    }
+    .brand-mark {
+      width: 32px; height: 32px; flex: none;
+      border-radius: 8px;
+      background: linear-gradient(155deg, var(--rust), var(--mustard));
+      display: flex; align-items: center; justify-content: center;
+      color: var(--rust-ink);
+    }
+    .brand-name { font-family: Cambria, Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.02rem; color: var(--ink); }
+    .brand-sub { font-size: 0.68rem; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.08em; }
+
+    .nav-group { display: flex; flex-direction: column; gap: 2px; }
+    .nav-eyebrow {
+      font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--ink-faint); padding: 0 10px 6px;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 9px;
       padding: 8px 10px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      font-size: 0.95rem;
+      border-radius: 8px;
+      color: var(--ink-muted);
+      text-decoration: none;
+      font-size: 0.87rem;
+      font-weight: 500;
+      border: 1px solid transparent;
+    }
+    .nav-item svg { flex: none; opacity: 0.8; }
+    .nav-item:hover { background: var(--surface); color: var(--ink); }
+    .nav-item.active {
+      background: var(--surface);
+      color: var(--ink);
+      border-color: var(--border);
+      box-shadow: inset 3px 0 0 var(--rust);
+      font-weight: 700;
+    }
+    .nav-item.ai.active { box-shadow: inset 3px 0 0 var(--pine); }
+
+    .rail-foot { margin-top: auto; display: flex; align-items: center; padding: 8px 6px 2px; border-top: 1px solid var(--border); padding-top: 12px; }
+    .theme-toggle { margin-left: auto; display: flex; gap: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
+    .theme-toggle button { border: none; background: transparent; padding: 4px 7px; border-radius: 5px; color: var(--ink-muted); cursor: pointer; font-size: 0.72rem; font: inherit; }
+    .theme-toggle button.on { background: var(--ink); color: var(--ground); }
+
+    .main { min-width: 0; }
+    .content { padding: 26px 30px 60px; max-width: 1180px; }
+
+    .mobile-topbar { display: none; }
+    .hamburger { display: none; }
+    .scrim { display: none; }
+
+    /* ---------- Components (used by page templates) ---------- */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; margin-bottom: 16px; box-shadow: var(--shadow); }
+
+    label { display: block; font-weight: 600; margin: 14px 0 4px; font-size: 0.85rem; color: var(--ink-muted); }
+    input[type=text], input[type=file], select, textarea {
+      width: 100%; padding: 9px 11px;
+      border: 1px solid var(--border); border-radius: 8px;
+      font-size: 0.92rem; font-family: inherit;
+      background: var(--ground); color: var(--ink);
       box-sizing: border-box;
     }
+    input:focus, select:focus, textarea:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
     textarea { min-height: 80px; resize: vertical; }
+
     button {
-      cursor: pointer;
-      border: none;
-      border-radius: 6px;
-      padding: 10px 18px;
-      font-size: 0.95rem;
-      font-weight: 600;
+      cursor: pointer; border: 1px solid transparent; border-radius: 8px;
+      padding: 10px 18px; font-size: 0.9rem; font-weight: 600; font-family: inherit;
     }
-    .btn-primary { background: #2563eb; color: #fff; margin-top: 16px; }
-    .btn-publish { background: #16a34a; color: #fff; }
-    .btn-delete { background: #dc2626; color: #fff; }
-    .btn-secondary { background: #e5e7eb; color: #111; }
-    .msg { padding: 10px 14px; border-radius: 6px; margin-bottom: 10px; font-size: 0.9rem; }
-    .msg-success { background: #dcfce7; color: #166534; }
-    .msg-error { background: #fee2e2; color: #991b1b; }
-    .tpl-meta { font-size: 0.85rem; color: #666; margin-top: 4px; }
+    button:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .btn-primary { background: var(--rust); color: var(--rust-ink); margin-top: 16px; }
+    .btn-ai { background: var(--pine); color: var(--pine-ink); margin-top: 16px; }
+    .btn-publish { background: var(--success); color: var(--success-ink); }
+    .btn-delete { background: var(--danger); color: var(--danger-ink); }
+    .btn-secondary { background: var(--surface-2); color: var(--ink); border-color: var(--border); }
+
+    .msg { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 0.88rem; border: 1px solid transparent; }
+    .msg-success { background: color-mix(in srgb, var(--success) 16%, var(--surface)); color: var(--ink); border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
+    .msg-error { background: color-mix(in srgb, var(--danger) 14%, var(--surface)); color: var(--ink); border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+
+    .tpl-meta { font-size: 0.84rem; color: var(--ink-muted); margin-top: 4px; }
     .images { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
-    .images img { width: 220px; border-radius: 8px; border: 1px solid #ddd; }
+    .images img { width: 220px; border-radius: 8px; border: 1px solid var(--border); }
+
     .checkerboard {
       background-image:
-        linear-gradient(45deg, #bbb 25%, transparent 25%),
-        linear-gradient(-45deg, #bbb 25%, transparent 25%),
-        linear-gradient(45deg, transparent 75%, #bbb 75%),
-        linear-gradient(-45deg, transparent 75%, #bbb 75%);
+        linear-gradient(45deg, color-mix(in srgb, var(--ink) 22%, transparent) 25%, transparent 25%),
+        linear-gradient(-45deg, color-mix(in srgb, var(--ink) 22%, transparent) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--ink) 22%, transparent) 75%),
+        linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--ink) 22%, transparent) 75%);
       background-size: 16px 16px;
       background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
     }
-    .actions { display: flex; gap: 10px; margin-top: 20px; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; background: #eef2ff; color: #3730a3; }
-    #desc-rendered table, .product-description table { border-collapse: collapse; margin: 8px 0; }
-    #desc-rendered td, #desc-rendered th, .product-description td, .product-description th {
-      border: 1px solid #ddd; padding: 6px 12px; text-align: left;
+
+    .actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 3px 10px; border-radius: 999px;
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+      background: color-mix(in srgb, var(--pine) 20%, var(--surface));
+      color: var(--pine);
     }
+
+    #desc-rendered table, .product-description table { border-collapse: collapse; margin: 8px 0; }
+    #desc-rendered td, #desc-rendered th, .product-description td, .product-description th { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
     #desc-rendered ul, .product-description ul { margin: 6px 0; padding-left: 22px; }
     #desc-rendered p, .product-description p { margin: 8px 0; }
-    #desc-rendered:focus { outline: 2px solid #2563eb; outline-offset: -1px; }
-    @media (prefers-color-scheme: dark) {
-      #desc-rendered { background: #1e1e1e; color: #eaeaea; border-color: #444; }
-      #desc-rendered table, .product-description table { border-color: #444; }
-      #desc-rendered td, #desc-rendered th, .product-description td, .product-description th { border-color: #444; }
-    }
-    nav { margin-bottom: 8px; }
-    nav a { margin-right: 16px; font-size: 0.9rem; font-weight: 600; }
+    #desc-rendered { background: var(--ground); color: var(--ink); border-color: var(--border); }
+    #desc-rendered:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
+
     .modal-overlay {
-      display: none;
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.6);
+      display: none; position: fixed; inset: 0;
+      background: rgba(20,16,10,0.65);
       align-items: center; justify-content: center;
-      padding: 24px;
-      z-index: 100;
+      padding: 24px; z-index: 100;
     }
     .modal-overlay.open { display: flex; }
-    .modal-box {
-      background: #fff; border-radius: 10px; padding: 20px;
-      max-width: 700px; max-height: 85vh; overflow-y: auto; width: 100%;
-    }
-    @media (prefers-color-scheme: dark) { .modal-box { background: #1a1a1a; } }
+    .modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; max-width: 700px; max-height: 85vh; overflow-y: auto; width: 100%; box-shadow: var(--shadow); }
     .modal-box h3 { margin-top: 0; }
-    .modal-close { float: right; background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 0 4px; }
-    .modal-images img { width: 100%; border-radius: 8px; margin-bottom: 10px; border: 1px solid #ddd; }
-    .modal-status { font-size: 0.9rem; color: #666; }
+    .modal-close { float: right; background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 0 4px; color: var(--ink-muted); }
+    .modal-images img { width: 100%; border-radius: 8px; margin-bottom: 10px; border: 1px solid var(--border); }
+    .modal-status { font-size: 0.9rem; color: var(--ink-muted); }
+
+    /* ---------- Mobile ---------- */
+    @media (max-width: 880px) {
+      .shell { display: block; }
+      .rail {
+        position: fixed; inset: 0 auto 0 0; width: 262px; z-index: 60;
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+        box-shadow: var(--shadow);
+      }
+      .rail.open { transform: translateX(0); }
+      .scrim {
+        display: none; position: fixed; inset: 0; z-index: 50;
+        background: rgba(20,16,10,0.5);
+      }
+      .scrim.open { display: block; }
+      .mobile-topbar {
+        display: flex; align-items: center; gap: 12px;
+        padding: 12px 16px;
+        background: var(--surface-2);
+        border-bottom: 1px solid var(--border);
+        position: sticky; top: 0; z-index: 10;
+      }
+      .hamburger {
+        display: flex; align-items: center; justify-content: center;
+        width: 36px; height: 36px; flex: none;
+        border-radius: 8px; border: 1px solid var(--border);
+        background: var(--surface); color: var(--ink);
+      }
+      .content { padding: 18px 16px 48px; }
+    }
   </style>
 </head>
 <body>
-  <h1><a href="{% url 'index' %}" style="text-decoration:none;">🖨️ Sunfade Printify</a></h1>
-  <nav>
-    <a href="{% url 'index' %}">Tạo sản phẩm</a>
-    <a href="{% url 'batch_page' %}">Tạo hàng loạt</a>
-    <a href="{% url 'library_page' %}">Thư viện</a>
-    <a href="{% url 'mockup_studio_index' %}">Mockup Studio</a>
-    <a href="{% url 'video_studio_index' %}">Video AI</a>
-    <a href="{% url 'template_gallery' %}">Danh sách Template</a>
-    <a href="{% url 'upscale_page' %}">Upscale ảnh</a>
-    <a href="{% url 'ai_studio_page' %}">AI Studio</a>
-  </nav>
+  {% with url_name=request.resolver_match.url_name %}
+  <div class="shell">
+    <div class="scrim" id="nav-scrim"></div>
 
-  {% if messages %}
-    {% for message in messages %}
-      <div class="msg {% if message.tags == 'error' %}msg-error{% else %}msg-success{% endif %}">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
+    <aside class="rail" id="nav-rail">
+      <a href="{% url 'index' %}" class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 20L9 8L13 15L16 10L21 20H3Z" fill="currentColor"/><circle cx="17" cy="5" r="2.4" fill="currentColor"/></svg>
+        </span>
+        <span>
+          <span class="brand-name">Sunfade</span><br>
+          <span class="brand-sub">Printify Console</span>
+        </span>
+      </a>
 
-  {% block content %}{% endblock %}
+      <nav class="nav-group">
+        <div class="nav-eyebrow">Tạo mới</div>
+        <a class="nav-item {% if url_name == 'index' or url_name == 'create_product' %}active{% endif %}" href="{% url 'index' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Tạo sản phẩm
+        </a>
+        <a class="nav-item {% if url_name == 'batch_page' %}active{% endif %}" href="{% url 'batch_page' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          Tạo hàng loạt
+        </a>
+      </nav>
+
+      <nav class="nav-group">
+        <div class="nav-eyebrow">Công cụ AI</div>
+        <a class="nav-item ai {% if url_name == 'mockup_studio_index' or url_name == 'mockup_studio' %}active{% endif %}" href="{% url 'mockup_studio_index' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16l4.5-6 3.5 4.5 2.5-3L20 16"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>
+          Mockup Studio
+        </a>
+        <a class="nav-item ai {% if url_name == 'video_studio_index' or url_name == 'video_studio' %}active{% endif %}" href="{% url 'video_studio_index' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></svg>
+          Video AI
+        </a>
+        <a class="nav-item ai {% if url_name == 'ai_studio_page' or url_name == 'studio_restyle' or url_name == 'studio_remove_bg' or url_name == 'studio_resize' %}active{% endif %}" href="{% url 'ai_studio_page' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18 9l-4.1 1.4L12 15l-1.9-4.6L6 9l4.1-1.4L12 3z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
+          AI Studio
+        </a>
+      </nav>
+
+      <nav class="nav-group">
+        <div class="nav-eyebrow">Quản lý</div>
+        <a class="nav-item {% if url_name == 'library_page' or url_name == 'mockup_gallery' or url_name == 'video_gallery' %}active{% endif %}" href="{% url 'library_page' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V6a2 2 0 012-2h7l5 5v10a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>
+          Thư viện
+        </a>
+        <a class="nav-item {% if url_name == 'template_gallery' %}active{% endif %}" href="{% url 'template_gallery' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>
+          Danh sách Template
+        </a>
+        <a class="nav-item {% if url_name == 'upscale_page' %}active{% endif %}" href="{% url 'upscale_page' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+          Upscale ảnh
+        </a>
+      </nav>
+
+      <div class="rail-foot">
+        <div class="theme-toggle" role="group" aria-label="Đổi giao diện sáng tối" id="theme-toggle">
+          <button type="button" data-theme-btn="light">Sáng</button>
+          <button type="button" data-theme-btn="dark">Tối</button>
+          <button type="button" data-theme-btn="system" class="on">Hệ thống</button>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="mobile-topbar">
+        <button type="button" class="hamburger" id="hamburger-btn" aria-label="Mở menu" aria-expanded="false" aria-controls="nav-rail">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <span class="brand-name">🏕️ Sunfade Printify</span>
+      </div>
+
+      <div class="content">
+        {% if messages %}
+          {% for message in messages %}
+            <div class="msg {% if message.tags == 'error' %}msg-error{% else %}msg-success{% endif %}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+  {% endwith %}
+
+  <script>
+    const railEl = document.getElementById('nav-rail');
+    const scrimEl = document.getElementById('nav-scrim');
+    const hamburgerBtn = document.getElementById('hamburger-btn');
+    function closeNav() {
+      railEl.classList.remove('open');
+      scrimEl.classList.remove('open');
+      if (hamburgerBtn) hamburgerBtn.setAttribute('aria-expanded', 'false');
+    }
+    if (hamburgerBtn) {
+      hamburgerBtn.addEventListener('click', () => {
+        const isOpen = railEl.classList.toggle('open');
+        scrimEl.classList.toggle('open', isOpen);
+        hamburgerBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      });
+    }
+    scrimEl.addEventListener('click', closeNav);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNav(); });
+    railEl.querySelectorAll('.nav-item').forEach((a) => a.addEventListener('click', closeNav));
+
+    const root = document.documentElement;
+    const stored = localStorage.getItem('sunfade-theme');
+    if (stored === 'light' || stored === 'dark') root.setAttribute('data-theme', stored);
+    function setTheme(mode) {
+      if (mode === 'system') { root.removeAttribute('data-theme'); localStorage.removeItem('sunfade-theme'); }
+      else { root.setAttribute('data-theme', mode); localStorage.setItem('sunfade-theme', mode); }
+      document.querySelectorAll('[data-theme-btn]').forEach((b) => b.classList.toggle('on', b.dataset.themeBtn === mode));
+    }
+    document.querySelectorAll('[data-theme-btn]').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.themeBtn)));
+    if (stored === 'light' || stored === 'dark') setTheme(stored);
+  </script>
 </body>
 </html>

@@ -23,8 +23,8 @@
 
     <div style="display:flex; justify-content:space-between; align-items:center;">
       <label for="title" style="margin:14px 0 4px;">Title</label>
-      <button type="button" class="btn-secondary" id="ai-title-btn" title="AI viết title từ ảnh"
-              style="padding:4px 10px; font-size:0.8rem;">🪄 AI viết title</button>
+      <button type="button" class="btn-ai" id="ai-title-btn" title="AI viết title từ ảnh"
+              style="padding:4px 10px; font-size:0.8rem; margin-top:0;">🪄 AI viết title</button>
     </div>
     <input type="text" name="title" id="title" placeholder="Yosemite Retro Sunburst Poster" required>
     <div class="tpl-meta" id="title-status"></div>
@@ -34,13 +34,13 @@
       <button type="button" class="btn-secondary" id="toggle-html-btn" style="padding:4px 10px; font-size:0.8rem;">&lt;/&gt; Xem mã HTML</button>
     </div>
     <div id="desc-rendered" contenteditable="true"
-         style="min-height:160px; padding:8px 10px; border:1px solid #ccc; border-radius:6px; font-size:0.95rem; overflow-y:auto;"></div>
+         style="min-height:160px; padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-size:0.95rem; overflow-y:auto;"></div>
     <textarea name="description" id="description" style="display:none; min-height:160px; font-family:monospace; font-size:0.85rem;"></textarea>
 
     <div style="display:flex; justify-content:space-between; align-items:center;">
       <label for="tags" style="margin:14px 0 4px;">Tags (phân cách bởi dấu phẩy)</label>
-      <button type="button" class="btn-secondary" id="ai-tags-btn" title="AI thêm tag từ ảnh"
-              style="padding:4px 10px; font-size:0.8rem;">🪄 AI thêm tag</button>
+      <button type="button" class="btn-ai" id="ai-tags-btn" title="AI thêm tag từ ảnh"
+              style="padding:4px 10px; font-size:0.8rem; margin-top:0;">🪄 AI thêm tag</button>
     </div>
     <input type="text" name="tags" id="tags" placeholder="national park, retro, wall art">
     <div class="tpl-meta" id="tags-status"></div>

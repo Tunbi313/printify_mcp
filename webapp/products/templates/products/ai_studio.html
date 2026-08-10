@@ -30,7 +30,7 @@
               style="padding:10px; text-align:left;">{{ s.label }}</button>
     {% endfor %}
   </div>
-  <button type="button" class="btn-primary" id="redesign-btn" style="margin-top:14px;" disabled>
+  <button type="button" class="btn-ai" id="redesign-btn" style="margin-top:14px;" disabled>
     🎨 Redesign
   </button>
   <span class="tpl-meta" id="selected-style-label"></span>
@@ -43,7 +43,7 @@
 <div class="card">
   <h3>2. Xóa nền (tùy chọn)</h3>
   <p class="tpl-meta">Chạy trên kết quả mới nhất — nếu bạn vừa Redesign, sẽ xóa nền trên bản đã redesign.</p>
-  <button type="button" class="btn-secondary" id="removebg-btn">✂️ Xóa nền</button>
+  <button type="button" class="btn-ai" id="removebg-btn">✂️ Xóa nền</button>
 
   <div class="images checkerboard" style="display:inline-flex; margin-top:14px; padding:4px; border-radius:8px;">
     <img id="removebg-preview" src="" alt="Kết quả xóa nền" style="width:240px; display:none;">
@@ -65,7 +65,7 @@
       <option value="{{ t.key }}">{{ t.label }} ({{ t.target_width }}x{{ t.target_height }}px)</option>
     {% endfor %}
   </select>
-  <button type="button" class="btn-primary" id="resize-btn" style="margin-top:10px;">
+  <button type="button" class="btn-ai" id="resize-btn" style="margin-top:10px;">
     📐 Resize theo Template
   </button>
 

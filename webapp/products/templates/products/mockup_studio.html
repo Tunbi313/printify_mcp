@@ -28,7 +28,7 @@
           <input type="radio" name="source_image" value="{{ src }}"
                  {% if src == selected_source_image %}checked{% elif not selected_source_image and forloop.first %}checked{% endif %}
                  style="width:auto; margin-bottom:4px;">
-          <img src="{{ src }}" alt="mockup gốc" class="zoomable-mockup" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid #ddd; display:block; cursor:zoom-in;">
+          <img src="{{ src }}" alt="mockup gốc" class="zoomable-mockup" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid var(--border); display:block; cursor:zoom-in;">
         </label>
       {% endfor %}
     </div>
@@ -53,7 +53,7 @@
       {% endfor %}
     </select>
 
-    <button type="submit" class="btn-primary" id="scene-submit-btn">Tạo mockup</button>
+    <button type="submit" class="btn-ai" id="scene-submit-btn">Tạo mockup</button>
   </form>
   {% endif %}
 </div>
@@ -98,7 +98,7 @@
           <input type="radio" name="model_product_image" value="{{ src }}"
                  {% if src == selected_model_product_image %}checked{% elif not selected_model_product_image and forloop.first %}checked{% endif %}
                  style="width:auto; margin-bottom:4px;">
-          <img src="{{ src }}" alt="mockup gốc" class="zoomable-mockup" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid #ddd; display:block; cursor:zoom-in;">
+          <img src="{{ src }}" alt="mockup gốc" class="zoomable-mockup" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid var(--border); display:block; cursor:zoom-in;">
         </label>
       {% endfor %}
     </div>
@@ -141,7 +141,7 @@
       {% endfor %}
     </select>
 
-    <button type="submit" class="btn-primary" id="model-submit-btn">Tạo mockup người mẫu</button>
+    <button type="submit" class="btn-ai" id="model-submit-btn">Tạo mockup người mẫu</button>
   </form>
   {% endif %}
 </div>

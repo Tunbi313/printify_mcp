@@ -8,7 +8,7 @@
   <div style="overflow-x:auto;">
     <table style="width:100%; border-collapse:collapse;">
       <thead>
-        <tr style="text-align:left; border-bottom:2px solid #e0e0e0;">
+        <tr style="text-align:left; border-bottom:2px solid var(--border);">
           <th style="padding:8px 6px;">Template</th>
           <th style="padding:8px 6px;">Mã</th>
           <th style="padding:8px 6px;">Size</th>
@@ -19,14 +19,14 @@
       </thead>
       <tbody>
         {% for t in templates %}
-        <tr style="border-bottom:1px solid #eee;">
+        <tr style="border-bottom:1px solid var(--border);">
           <td class="tpl-row" data-key="{{ t.key }}" data-label="{{ t.label }}" data-prompt="{{ t.sample_prompt }}"
               style="padding:8px 6px; font-weight:600; cursor:pointer;">{{ t.label }}</td>
           <td style="padding:8px 6px;"><code>{{ t.key }}</code></td>
           <td style="padding:8px 6px;">{{ t.sizes|join:", " }}</td>
           <td style="padding:8px 6px;">{% for p in t.prices %}${{ p }}{% if not forloop.last %} / {% endif %}{% endfor %}</td>
-          <td style="padding:8px 6px; font-size:0.85rem; color:#666;">{{ t.artwork_spec }}</td>
-          <td style="padding:8px 6px; font-size:0.85rem; color:#666; max-width:280px;">
+          <td style="padding:8px 6px; font-size:0.85rem; color:var(--ink-muted);">{{ t.artwork_spec }}</td>
+          <td style="padding:8px 6px; font-size:0.85rem; color:var(--ink-muted); max-width:280px;">
             {{ t.sample_prompt }}
             {% if t.sample_prompt %}
             <button type="button" class="copy-prompt-btn btn-secondary"
@@ -45,7 +45,7 @@
   <div class="modal-box">
     <button type="button" class="modal-close" id="modal-close">&times;</button>
     <h3 id="modal-title"></h3>
-    <div id="modal-prompt" style="font-size:0.85rem; color:#666; margin-bottom:12px;"></div>
+    <div id="modal-prompt" style="font-size:0.85rem; color:var(--ink-muted); margin-bottom:12px;"></div>
     <div class="modal-status" id="modal-status"></div>
     <div class="modal-images" id="modal-images"></div>
   </div>
