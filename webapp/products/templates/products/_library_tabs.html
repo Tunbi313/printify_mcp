@@ -1,0 +1,5 @@
+<div style="display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid #e0e0e0;">
+  <a href="{% url 'library_page' %}" style="padding:8px 16px; text-decoration:none; font-weight:600; font-size:0.9rem; color:inherit; border-bottom:3px solid {% if active_tab == 'draft' %}#2563eb{% else %}transparent{% endif %};">Sản phẩm Draft</a>
+  <a href="{% url 'mockup_gallery' %}" style="padding:8px 16px; text-decoration:none; font-weight:600; font-size:0.9rem; color:inherit; border-bottom:3px solid {% if active_tab == 'mockup' %}#2563eb{% else %}transparent{% endif %};">Mockup</a>
+  <a href="{% url 'video_gallery' %}" style="padding:8px 16px; text-decoration:none; font-weight:600; font-size:0.9rem; color:inherit; border-bottom:3px solid {% if active_tab == 'video' %}#2563eb{% else %}transparent{% endif %};">Video AI</a>
+</div>

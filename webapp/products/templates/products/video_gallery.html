@@ -1,0 +1,85 @@
+{% extends "products/base.html" %}
+{% block title %}Thư viện video AI{% endblock %}
+{% block content %}
+
+{% include "products/_library_tabs.html" %}
+
+<div class="card">
+  <h2>Thư viện video AI</h2>
+  <p class="tpl-meta">
+    Tất cả video AI đã tạo, mới nhất trước. Tải về hoặc xóa ngay tại đây.
+    <a href="{% url 'video_studio_index' %}">+ Tạo video mới</a>
+  </p>
+
+  <div id="empty-msg" class="tpl-meta" style="{% if videos %}display:none;{% endif %}">Chưa tạo video AI nào.</div>
+
+  <div id="videos-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:16px; margin-top:16px;">
+    {% for v in videos %}
+    <div class="card" style="padding:10px; margin-bottom:0;" data-video-card>
+      <video src="{{ v.url }}" controls style="width:100%; border-radius:6px; border:1px solid #ddd; display:block; background:#000;"></video>
+      <p style="font-size:0.8rem; font-weight:600; margin:8px 0 2px;">
+        <a href="{% url 'product_detail' v.product_id %}" style="text-decoration:none;">{{ v.product_title|default:"(sản phẩm đã xóa)" }}</a>
+      </p>
+      <p class="tpl-meta" style="margin:0 0 8px;">
+        <span class="badge">{{ v.get_model_display }}</span>
+        · {{ v.duration }}s · {{ v.aspect_ratio }} · ~${{ v.cost_usd }}
+      </p>
+      <div style="display:flex; gap:6px;">
+        <a href="{{ v.url }}" download style="flex:1;"><button type="button" class="btn-secondary" style="width:100%; padding:6px; font-size:0.8rem;">Tải về</button></a>
+        <form method="post" action="{% url 'video_delete' v.id %}" class="ajax-delete-form" data-confirm="Xóa video này?" style="flex:1;">
+          {% csrf_token %}
+          <button type="submit" class="btn-delete" style="width:100%; padding:6px; font-size:0.8rem;">Xóa</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.ajax-delete-form').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (form.dataset.busy) return;
+      if (!confirm(form.dataset.confirm)) return;
+
+      form.dataset.busy = '1';
+      const btn = form.querySelector('button[type=submit]');
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Đang xóa...';
+
+      try {
+        const res = await fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        const data = await res.json();
+        if (data.ok) {
+          const card = form.closest('[data-video-card]');
+          card.style.transition = 'opacity 0.25s';
+          card.style.opacity = '0';
+          setTimeout(() => {
+            card.remove();
+            if (!document.querySelector('[data-video-card]')) {
+              document.getElementById('empty-msg').style.display = '';
+            }
+          }, 250);
+        } else {
+          alert('Lỗi: ' + (data.error || 'không rõ nguyên nhân'));
+          btn.disabled = false;
+          btn.textContent = originalText;
+          delete form.dataset.busy;
+        }
+      } catch (err) {
+        alert('Lỗi kết nối: ' + err);
+        btn.disabled = false;
+        btn.textContent = originalText;
+        delete form.dataset.busy;
+      }
+    });
+  });
+</script>
+
+{% endblock %}

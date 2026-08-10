@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import re
 import uuid
 
@@ -23,9 +24,10 @@ def _safe_next(request, next_url):
 
 from . import fal_studio
 from . import fal_upscale
+from . import fal_video
 from . import openrouter_client
 from . import printify_client as pc
-from .models import AiMockup
+from .models import AiMockup, AiVideo
 from .templates_catalog import TEMPLATES
 
 GENERIC_FILENAME_WORDS = {
@@ -565,7 +567,7 @@ def library_page(request):
             "title": p["title"],
             "thumb": images[0]["src"] if images else None,
         })
-    return render(request, "products/library.html", {"drafts": drafts})
+    return render(request, "products/library.html", {"drafts": drafts, "active_tab": "draft"})
 
 
 def product_detail(request, product_id):
@@ -667,6 +669,48 @@ def _guess_model_action(product: dict) -> str:
     return GENERIC_MODEL_ACTION
 
 
+VIDEO_MOTION_HINTS = {
+    "tshirt": "camera slowly orbits around the folded t-shirt, soft studio "
+              "lighting, subtle fabric movement, smooth motion",
+    "hat": "camera slowly orbits around the hat, soft studio lighting, smooth motion",
+    "hat_vintage_a": "camera slowly orbits around the hat, soft studio lighting, smooth motion",
+    "hat_vintage_b": "camera slowly orbits around the hat, soft studio lighting, smooth motion",
+    "mug": "steam gently rises from the mug, camera slowly zooms in, soft studio lighting",
+    "stein_mug": "camera slowly zooms in on the mug, soft studio lighting",
+    "tumbler": "camera slowly rotates around the tumbler, soft studio lighting",
+    "candle": "the candle flame gently flickers, camera slowly zooms in, warm soft lighting",
+    "can_glass_engraved": "camera slowly rotates around the glass, light glinting off the etched design",
+    "poster_matte_2x3": "camera slowly zooms in on the poster, subtle parallax, soft lighting",
+    "canvas_2x3": "camera slowly zooms in on the canvas, subtle parallax, soft lighting",
+    "sticker": "camera slowly zooms in on the sticker, subtle light glint",
+}
+GENERIC_VIDEO_MOTION = "camera slowly zooms in on the product, smooth subtle motion, professional product photography style"
+
+
+def _guess_video_motion(product: dict) -> str:
+    blueprint_id = product.get("blueprint_id")
+    for key, tpl in TEMPLATES.items():
+        if tpl.get("blueprint_id") == blueprint_id:
+            return VIDEO_MOTION_HINTS.get(key, GENERIC_VIDEO_MOTION)
+    return GENERIC_VIDEO_MOTION
+
+
+def _list_published_products(shop_id: str) -> list:
+    products = pc.list_all_products(shop_id)
+    published = []
+    for p in products:
+        external = p.get("external") or {}
+        if not external.get("id"):
+            continue  # draft, not published
+        images = p.get("images") or []
+        published.append({
+            "id": p["id"],
+            "title": p["title"],
+            "thumb": images[0]["src"] if images else None,
+        })
+    return published
+
+
 def _save_ai_images(product_id: str, generated: list, product_title: str,
                      kind: str, label: str) -> list:
     saved = []
@@ -683,7 +727,7 @@ def _save_ai_images(product_id: str, generated: list, product_title: str,
 
 def mockup_gallery(request):
     mockups = AiMockup.objects.all()[:300]
-    return render(request, "products/mockup_gallery.html", {"mockups": mockups})
+    return render(request, "products/mockup_gallery.html", {"mockups": mockups, "active_tab": "mockup"})
 
 
 def mockup_delete(request, mockup_id):
@@ -712,22 +756,10 @@ MOCKUP_STUDIO_PAGE_SIZE = 30
 def mockup_studio_index(request):
     try:
         shop_id = pc.default_shop_id()
-        products = pc.list_all_products(shop_id)
+        published = _list_published_products(shop_id)
     except Exception as exc:
         messages.error(request, f"Không lấy được danh sách sản phẩm: {exc}")
-        products = []
-
-    published = []
-    for p in products:
-        external = p.get("external") or {}
-        if not external.get("id"):
-            continue  # draft, not published — mockup studio only works on live products
-        images = p.get("images") or []
-        published.append({
-            "id": p["id"],
-            "title": p["title"],
-            "thumb": images[0]["src"] if images else None,
-        })
+        published = []
 
     paginator = Paginator(published, MOCKUP_STUDIO_PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get("page"))
@@ -877,6 +909,201 @@ def _mockup_studio_model_post(request, product_id, source_images, context):
 
     context["model_result_mockups"] = result_mockups
     return render(request, "products/mockup_studio.html", context)
+
+
+VIDEO_STUDIO_PAGE_SIZE = 30
+
+
+def video_studio_index(request):
+    try:
+        shop_id = pc.default_shop_id()
+        published = _list_published_products(shop_id)
+    except Exception as exc:
+        messages.error(request, f"Không lấy được danh sách sản phẩm: {exc}")
+        published = []
+
+    paginator = Paginator(published, VIDEO_STUDIO_PAGE_SIZE)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    return render(request, "products/video_studio_index.html", {"page_obj": page_obj})
+
+
+def video_studio(request, product_id):
+    shop_id = pc.default_shop_id()
+    try:
+        product = pc.get_product(product_id, shop_id)
+    except Exception as exc:
+        messages.error(request, f"Không lấy được sản phẩm: {exc}")
+        return redirect("index")
+
+    external = product.get("external") or {}
+    if not external.get("id"):
+        messages.error(request, "Video AI chỉ áp dụng cho sản phẩm đã publish lên store.")
+        return redirect("video_studio_index")
+
+    source_images = [img.get("src") for img in product.get("images", []) if img.get("src")]
+    context = {
+        "product": product,
+        "source_images": source_images,
+        "default_prompt": _guess_video_motion(product),
+        "durations": fal_video.KLING_DURATIONS,  # same set for both models
+        "resolutions": fal_video.SEEDANCE_RESOLUTIONS,
+        "aspect_ratios": fal_video.ASPECT_RATIOS,
+        "generate_audio": True,
+    }
+
+    if request.method != "POST":
+        return render(request, "products/video_studio.html", context)
+
+    source_image = request.POST.get("source_image", "")
+    model = request.POST.get("model", "kling")
+    if model not in ("kling", "seedance"):
+        model = "kling"
+    prompt = request.POST.get("prompt", "").strip()
+    duration = request.POST.get("duration", "5")
+    resolution = request.POST.get("resolution", "720p")
+    aspect_ratio = request.POST.get("aspect_ratio", "16:9")
+    if aspect_ratio not in fal_video.ASPECT_RATIOS:
+        aspect_ratio = fal_video.ASPECT_RATIOS[0]
+    generate_audio = request.POST.get("generate_audio") == "on"
+
+    context.update({
+        "selected_source_image": source_image,
+        "selected_model": model,
+        "prompt": prompt,
+        "selected_duration": duration,
+        "selected_resolution": resolution,
+        "selected_aspect_ratio": aspect_ratio,
+        "generate_audio": generate_audio,
+    })
+
+    if source_image not in source_images:
+        messages.error(request, "Ảnh gốc không hợp lệ.")
+        return render(request, "products/video_studio.html", context)
+    if not prompt:
+        messages.error(request, "Bạn chưa mô tả chuyển động cho video.")
+        return render(request, "products/video_studio.html", context)
+
+    try:
+        if model == "seedance":
+            if duration not in fal_video.SEEDANCE_DURATIONS:
+                duration = fal_video.SEEDANCE_DURATIONS[0]
+            if resolution not in fal_video.SEEDANCE_RESOLUTIONS:
+                resolution = fal_video.SEEDANCE_RESOLUTIONS[0]
+            video_bytes, content_type = fal_video.generate_seedance_video(
+                source_image, prompt, duration, resolution, aspect_ratio, generate_audio,
+            )
+        else:
+            if duration not in fal_video.KLING_DURATIONS:
+                duration = fal_video.KLING_DURATIONS[0]
+            resolution = "720p"  # Kling has no resolution knob; kept for cost estimate consistency
+            video_bytes, content_type = fal_video.generate_kling_video(
+                source_image, prompt, duration, aspect_ratio,
+            )
+    except Exception as exc:
+        messages.error(request, f"Lỗi khi tạo video: {exc}")
+        return render(request, "products/video_studio.html", context)
+
+    cost = fal_video.estimate_cost_usd(model, duration, resolution)
+    filename = f"ai_videos/{product_id}_{uuid.uuid4().hex[:8]}.mp4"
+    saved_path = default_storage.save(filename, ContentFile(video_bytes))
+    result_video = AiVideo.objects.create(
+        product_id=product_id, product_title=product.get("title", ""),
+        model=model, prompt=prompt, duration=duration, aspect_ratio=aspect_ratio,
+        cost_usd=cost, file_path=saved_path,
+    )
+    context["result_video"] = result_video
+    return render(request, "products/video_studio.html", context)
+
+
+VIDEO_PROMPT_MAX_IMAGES = 5
+
+
+def video_generate_prompts(request, product_id):
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    shop_id = pc.default_shop_id()
+    try:
+        product = pc.get_product(product_id, shop_id)
+    except Exception as exc:
+        return JsonResponse({"error": f"Không lấy được sản phẩm: {exc}"}, status=502)
+
+    image_urls = [img.get("src") for img in product.get("images", []) if img.get("src")]
+    image_urls = image_urls[:VIDEO_PROMPT_MAX_IMAGES]
+    if not image_urls:
+        return JsonResponse({"error": "Sản phẩm chưa có ảnh mockup nào."}, status=400)
+
+    instruction = (
+        "You are a creative director for short AI-generated product promo "
+        "videos (used with image-to-video models like Kling/Seedance). "
+        f"You are shown {len(image_urls)} mockup photo(s) of the SAME "
+        "product (possibly different angles/colors). Study the product's "
+        "actual shape, material, color, and printed design in the images.\n\n"
+        "Write 4 DISTINCT camera/motion prompts for animating this exact "
+        "product, each a different style:\n"
+        "1. \"rotate\" — a clean, professional turntable-style product shot "
+        "(camera orbits or product slowly rotates), studio lighting.\n"
+        "2. \"zoom\" — a dramatic slow zoom/dolly-in that highlights a "
+        "specific real detail of the product visible in the photos.\n"
+        "3. \"lifestyle\" — the product placed in a natural real-world "
+        "setting/context implied by the product type, camera pans gently.\n"
+        "4. \"dynamic\" — energetic camera motion (e.g. quick push-in, "
+        "parallax) for a punchy social-media ad feel.\n\n"
+        "Each prompt must be 1-2 sentences, in English, describing ONLY "
+        "camera/lighting/environment motion — never invent new colors, text, "
+        "logos or shapes that contradict what is actually in the photos.\n\n"
+        "Respond with ONLY a JSON array, no markdown fences, no extra text, "
+        "in this exact shape: "
+        '[{"key": "rotate", "label": "Xoay chuyên nghiệp", "prompt": "..."}, '
+        '{"key": "zoom", "label": "Zoom cận cảnh", "prompt": "..."}, '
+        '{"key": "lifestyle", "label": "Bối cảnh đời thường", "prompt": "..."}, '
+        '{"key": "dynamic", "label": "Năng động, quảng cáo", "prompt": "..."}] '
+        "— \"label\" must be the Vietnamese labels given above, \"prompt\" in English."
+    )
+
+    try:
+        raw = openrouter_client.vision_chat_multi(image_urls, instruction, max_tokens=700)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(json)?\s*|\s*```$", "", cleaned.strip(), flags=re.MULTILINE)
+    try:
+        styles = json.loads(cleaned)
+        if not isinstance(styles, list) or not styles:
+            raise ValueError("empty or non-list response")
+    except (ValueError, json.JSONDecodeError):
+        # Model didn't follow the JSON format — fall back to a single
+        # style using the raw text so the feature still degrades gracefully.
+        styles = [{"key": "ai", "label": "AI gợi ý", "prompt": raw}]
+
+    return JsonResponse({"styles": styles})
+
+
+def video_gallery(request):
+    videos = AiVideo.objects.all()[:300]
+    return render(request, "products/video_gallery.html", {"videos": videos, "active_tab": "video"})
+
+
+def video_delete(request, video_id):
+    if request.method != "POST":
+        return redirect("video_gallery")
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    try:
+        video = AiVideo.objects.get(id=video_id)
+    except AiVideo.DoesNotExist:
+        if is_ajax:
+            return JsonResponse({"ok": False, "error": "Không tìm thấy video."}, status=404)
+        messages.error(request, "Không tìm thấy video.")
+        return redirect("video_gallery")
+
+    default_storage.delete(video.file_path)
+    video.delete()
+    if is_ajax:
+        return JsonResponse({"ok": True})
+    messages.success(request, "Đã xóa video.")
+    return redirect("video_gallery")
 
 
 def publish_product(request, product_id):

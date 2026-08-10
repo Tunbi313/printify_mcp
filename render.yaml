@@ -1,3 +1,9 @@
+databases:
+  - name: sunfade-printify-db
+    plan: free
+    databaseName: sunfade_printify
+    user: sunfade
+
 services:
   - type: web
     name: sunfade-printify
@@ -19,3 +25,21 @@ services:
         sync: false
       - key: OPENROUTER_MODEL
         value: openai/gpt-4o-mini
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sunfade-printify-db
+          property: connectionString
+      # Cloudflare R2 (S3-compatible) — persists media/ (AI mockups, AI
+      # videos, upscaled artwork) across deploys/restarts. Local disk on
+      # Render's free tier is wiped every deploy, so without these the app
+      # still runs but loses every generated file on the next push.
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_PUBLIC_DOMAIN
+        sync: false

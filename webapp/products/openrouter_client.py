@@ -45,3 +45,28 @@ def vision_chat(image_data_url: str, prompt: str, max_tokens: int = 200) -> str:
         r.raise_for_status()
         data = r.json()
         return data["choices"][0]["message"]["content"].strip()
+
+
+def vision_chat_multi(image_urls: list[str], prompt: str, max_tokens: int = 200) -> str:
+    """Send multiple images (already-hosted URLs, e.g. a product's several
+    mockup angles) + one text prompt to a vision-capable model, so it can
+    reason about the whole product rather than a single photo."""
+    _check_key()
+    model = os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
+    content = [{"type": "text", "text": prompt}]
+    for url in image_urls:
+        content.append({"type": "image_url", "image_url": {"url": url}})
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "max_tokens": max_tokens,
+    }
+    headers = {
+        "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(timeout=90) as client:
+        r = client.post(f"{API_BASE}/chat/completions", headers=headers, json=payload)
+        r.raise_for_status()
+        data = r.json()
+        return data["choices"][0]["message"]["content"].strip()

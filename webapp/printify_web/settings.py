@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 
+import dj_database_url
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -94,11 +95,13 @@ WSGI_APPLICATION = 'printify_web.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+# DATABASE_URL (set by Render's managed Postgres) takes over automatically;
+# falls back to local SQLite when unset, so local `runserver` is unaffected.
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+    )
 }
 
 
@@ -138,9 +141,30 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-# Upscaled artwork results are saved here so they can be downloaded.
+# Upscaled artwork / AI mockups / AI videos are saved here. On Render's free
+# tier the local disk is wiped on every deploy/restart, so in production this
+# is backed by Cloudflare R2 (S3-compatible) instead of the local filesystem
+# — set via R2_* env vars. Falls back to local storage when unset, so local
+# `runserver` needs no extra setup.
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME")
+if R2_BUCKET_NAME:
+    AWS_STORAGE_BUCKET_NAME = R2_BUCKET_NAME
+    AWS_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY")
+    AWS_S3_ENDPOINT_URL = os.environ.get("R2_ENDPOINT_URL")
+    AWS_S3_CUSTOM_DOMAIN = os.environ.get("R2_PUBLIC_DOMAIN")  # e.g. pub-xxxx.r2.dev
+    AWS_S3_ADDRESSING_STYLE = "virtual"
+    AWS_DEFAULT_ACL = None
+    AWS_QUERYSTRING_AUTH = False
+    AWS_S3_FILE_OVERWRITE = False
+
+    STORAGES = {
+        "default": {"BACKEND": "storages.backends.s3boto3.S3Boto3Storage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
 
 # Design files (posters etc.) can be several MB; raise the default 2.5MB cap.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024

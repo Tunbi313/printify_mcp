@@ -2,11 +2,15 @@
 {% block title %}Thư viện mockup AI{% endblock %}
 {% block content %}
 
-<p><a href="{% url 'mockup_studio_index' %}" style="text-decoration:none; font-weight:600;">&larr; Quay lại Mockup Studio</a></p>
+{% include "products/_library_tabs.html" %}
 
 <div class="card">
   <h2>Thư viện mockup AI</h2>
-  <p class="tpl-meta">Tất cả ảnh mockup AI đã tạo (bối cảnh + người mẫu), mới nhất trước. Bấm ảnh để xem to, tải về hoặc xóa ngay tại đây.</p>
+  <p class="tpl-meta">
+    Tất cả ảnh mockup AI đã tạo (bối cảnh + người mẫu), mới nhất trước. Bấm
+    ảnh để xem to, tải về hoặc xóa ngay tại đây.
+    <a href="{% url 'mockup_studio_index' %}">+ Tạo mockup mới</a>
+  </p>
 
   <div id="empty-msg" class="tpl-meta" style="{% if mockups %}display:none;{% endif %}">Chưa tạo mockup AI nào.</div>
 
