@@ -49,7 +49,14 @@ def _request(method: str, path: str, json=None, retries: int = 4):
                 time.sleep(delay)
                 delay *= 2
                 continue
-            r.raise_for_status()
+            if r.status_code >= 400:
+                try:
+                    detail = r.json()
+                except ValueError:
+                    detail = r.text
+                raise RuntimeError(
+                    f"Printify API {r.status_code} for {method} {path}: {detail}"
+                )
             return r.json() if r.text else {}
     raise RuntimeError(f"Printify API failed after {retries} retries: {method} {path}")
 
@@ -118,9 +125,22 @@ def get_product(product_id: str, shop_id: str) -> dict:
     return _request("GET", f"/shops/{shop_id}/products/{product_id}.json")
 
 
-def list_products(shop_id: str, limit: int = 50) -> list[dict]:
-    result = _request("GET", f"/shops/{shop_id}/products.json?limit={limit}")
+def list_products(shop_id: str, limit: int = 50, page: int = 1) -> list[dict]:
+    result = _request("GET", f"/shops/{shop_id}/products.json?limit={limit}&page={page}")
     return result.get("data", [])
+
+
+def list_all_products(shop_id: str, page_size: int = 50, max_pages: int = 40) -> list[dict]:
+    """Fetch every page of the shop's products (Printify caps each page at
+    `page_size`), stopping once a page comes back short/empty or
+    `max_pages` is hit (safety cap — 40 * 50 = 2000 products)."""
+    all_products = []
+    for page in range(1, max_pages + 1):
+        batch = list_products(shop_id, limit=page_size, page=page)
+        all_products.extend(batch)
+        if len(batch) < page_size:
+            break
+    return all_products
 
 
 def publish_product(product_id: str, shop_id: str) -> dict:

@@ -1,0 +1,52 @@
+{% extends "products/base.html" %}
+{% block title %}Mockup Studio{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Mockup Studio</h2>
+  <p class="tpl-meta">
+    Tạo thêm ảnh mockup AI (đổi bối cảnh, ghép người mẫu) cho các sản phẩm
+    <strong>đã publish lên store</strong>. Chọn 1 sản phẩm bên dưới để bắt đầu.
+  </p>
+  <p class="tpl-meta"><a href="{% url 'mockup_gallery' %}">📷 Xem tất cả mockup đã tạo →</a></p>
+
+  {% if not page_obj.object_list %}
+    <p class="tpl-meta">Chưa có sản phẩm nào đã publish. Publish sản phẩm ở <a href="{% url 'library_page' %}">Thư viện</a> trước đã nhé.</p>
+  {% else %}
+  <p class="tpl-meta">{{ page_obj.paginator.count }} sản phẩm — trang {{ page_obj.number }}/{{ page_obj.paginator.num_pages }}</p>
+  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px; margin-top:16px;">
+    {% for p in page_obj %}
+    <a href="{% url 'mockup_studio' p.id %}" style="text-decoration:none;">
+      <div class="card" style="padding:12px; margin-bottom:0;">
+        {% if p.thumb %}
+          <img src="{{ p.thumb }}" alt="{{ p.title }}" loading="lazy" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid #ddd;">
+        {% else %}
+          <div style="width:100%; aspect-ratio:1; border-radius:6px; border:1px solid #ddd; display:flex; align-items:center; justify-content:center; color:#999; font-size:0.8rem;">Chưa có ảnh</div>
+        {% endif %}
+        <p style="font-size:0.85rem; font-weight:600; margin:8px 0 0; color:inherit;">{{ p.title }}</p>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-top:24px;">
+    {% if page_obj.has_previous %}
+      <a href="?page={{ page_obj.previous_page_number }}"><button type="button" class="btn-secondary">&larr; Trước</button></a>
+    {% else %}
+      <button type="button" class="btn-secondary" disabled style="opacity:0.5; cursor:default;">&larr; Trước</button>
+    {% endif %}
+
+    <span class="tpl-meta">Trang {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+
+    {% if page_obj.has_next %}
+      <a href="?page={{ page_obj.next_page_number }}"><button type="button" class="btn-secondary">Sau &rarr;</button></a>
+    {% else %}
+      <button type="button" class="btn-secondary" disabled style="opacity:0.5; cursor:default;">Sau &rarr;</button>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+
+{% endblock %}

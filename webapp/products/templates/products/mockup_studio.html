@@ -1,0 +1,232 @@
+{% extends "products/base.html" %}
+{% block title %}Tạo mockup AI — {{ product.title }}{% endblock %}
+{% block content %}
+
+<p><a href="{% url 'product_detail' product.id %}" style="text-decoration:none; font-weight:600;">&larr; Quay lại sản phẩm</a></p>
+
+<div class="card">
+  <h2>1. Đổi bối cảnh sản phẩm</h2>
+  <p class="tpl-meta">
+    Chọn 1 ảnh mockup đang có của sản phẩm này, AI (fal.ai) sẽ đặt lại sản
+    phẩm vào một bối cảnh khác để bạn có thêm ảnh marketing (đăng social,
+    Etsy phụ...). Ảnh tạo ra <strong>không</strong> được gắn vào trang sản
+    phẩm trên Printify — chỉ để tải về dùng riêng. Chi phí ước tính
+    ~$0.04/ảnh.
+  </p>
+
+  {% if not source_images %}
+    <p class="tpl-meta">Sản phẩm này chưa có ảnh mockup nào (Printify có thể còn đang render — quay lại trang sản phẩm và tải lại sau).</p>
+  {% else %}
+  <form method="post" action="{% url 'mockup_studio' product.id %}" id="scene-form">
+    {% csrf_token %}
+    <input type="hidden" name="mode" value="scene">
+
+    <label>Ảnh mockup gốc</label>
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:10px; margin-bottom:8px;">
+      {% for src in source_images %}
+        <label style="font-weight:400; margin:0; cursor:pointer;">
+          <input type="radio" name="source_image" value="{{ src }}"
+                 {% if src == selected_source_image %}checked{% elif not selected_source_image and forloop.first %}checked{% endif %}
+                 style="width:auto; margin-bottom:4px;">
+          <img src="{{ src }}" alt="mockup gốc" class="zoomable-mockup" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid #ddd; display:block; cursor:zoom-in;">
+        </label>
+      {% endfor %}
+    </div>
+
+    <label for="style">Bối cảnh</label>
+    <select name="style" id="style">
+      {% for key, s in styles.items %}
+        <option value="{{ key }}" {% if key == selected_style %}selected{% endif %}>{{ s.label }}</option>
+      {% endfor %}
+      <option value="custom" {% if selected_style == "custom" %}selected{% endif %}>Tuỳ chỉnh (tự nhập mô tả)</option>
+    </select>
+
+    <div id="custom-prompt-wrap" style="display:none;">
+      <label for="custom_prompt">Mô tả bối cảnh (tiếng Anh, AI hiểu tốt hơn)</label>
+      <textarea name="custom_prompt" id="custom_prompt" placeholder="e.g. the product on a marble kitchen counter with soft morning light">{{ custom_prompt }}</textarea>
+    </div>
+
+    <label for="num_results">Số ảnh muốn tạo</label>
+    <select name="num_results" id="num_results">
+      {% for n in "1234" %}
+        <option value="{{ n }}" {% if num_results|stringformat:"s" == n %}selected{% endif %}>{{ n }}</option>
+      {% endfor %}
+    </select>
+
+    <button type="submit" class="btn-primary" id="scene-submit-btn">Tạo mockup</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if result_mockups %}
+<div class="card">
+  <h3>Kết quả — {{ result_style_label }}</h3>
+  <div class="images">
+    {% for m in result_mockups %}
+      <div>
+        <img src="{{ m.url }}" alt="mockup AI" class="zoomable-mockup" style="cursor:zoom-in;">
+        <div style="margin-top:6px;">
+          <a href="{{ m.url }}" download><button type="button" class="btn-secondary" style="width:100%;">Tải về</button></a>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>2. Mockup với người mẫu</h2>
+  <p class="tpl-meta">
+    AI ghép sản phẩm vào ảnh một người mẫu — áo thì cho mặc lên người,
+    mug/tumbler thì cho cầm trên tay... Có thể để AI tự sinh người mẫu
+    (không phải người thật), hoặc upload ảnh của chính bạn/người bạn có
+    quyền sử dụng. Chi phí tính theo số ảnh tạo ra, tương tự phần bối cảnh
+    ở trên.
+  </p>
+
+  {% if not source_images %}
+    <p class="tpl-meta">Sản phẩm này chưa có ảnh mockup nào để dùng làm nguồn ghép.</p>
+  {% else %}
+  <form method="post" action="{% url 'mockup_studio' product.id %}" enctype="multipart/form-data" id="model-form">
+    {% csrf_token %}
+    <input type="hidden" name="mode" value="model">
+
+    <label>Ảnh sản phẩm dùng để ghép</label>
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:10px; margin-bottom:8px;">
+      {% for src in source_images %}
+        <label style="font-weight:400; margin:0; cursor:pointer;">
+          <input type="radio" name="model_product_image" value="{{ src }}"
+                 {% if src == selected_model_product_image %}checked{% elif not selected_model_product_image and forloop.first %}checked{% endif %}
+                 style="width:auto; margin-bottom:4px;">
+          <img src="{{ src }}" alt="mockup gốc" class="zoomable-mockup" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid #ddd; display:block; cursor:zoom-in;">
+        </label>
+      {% endfor %}
+    </div>
+
+    <label>Nguồn ảnh người mẫu</label>
+    <div style="display:flex; gap:16px; margin-top:4px;">
+      <label style="font-weight:400; display:flex; align-items:center; gap:6px; margin:0;">
+        <input type="radio" name="model_source" value="ai" id="model_source_ai"
+               {% if model_source != "upload" %}checked{% endif %} style="width:auto;">
+        AI tự tạo người mẫu (Recommended)
+      </label>
+      <label style="font-weight:400; display:flex; align-items:center; gap:6px; margin:0;">
+        <input type="radio" name="model_source" value="upload" id="model_source_upload"
+               {% if model_source == "upload" %}checked{% endif %} style="width:auto;">
+        Upload ảnh của tôi
+      </label>
+    </div>
+
+    <div id="persona-wrap">
+      <label for="model_persona">Kiểu người mẫu</label>
+      <select name="model_persona" id="model_persona">
+        {% for key, p in personas.items %}
+          <option value="{{ key }}" {% if key == model_persona %}selected{% endif %}>{{ p.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div id="upload-wrap" style="display:none;">
+      <label for="model_photo">Ảnh người mẫu (upload từ máy)</label>
+      <input type="file" name="model_photo" id="model_photo" accept="image/png,image/jpeg,image/webp">
+    </div>
+
+    <label for="model_action">Người mẫu sẽ làm gì với sản phẩm (tiếng Anh)</label>
+    <textarea name="model_action" id="model_action">{{ model_action|default:default_model_action }}</textarea>
+
+    <label for="model_num_images">Số ảnh muốn tạo</label>
+    <select name="model_num_images" id="model_num_images">
+      {% for n in "1234" %}
+        <option value="{{ n }}" {% if model_num_images|stringformat:"s" == n %}selected{% endif %}>{{ n }}</option>
+      {% endfor %}
+    </select>
+
+    <button type="submit" class="btn-primary" id="model-submit-btn">Tạo mockup người mẫu</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if model_result_mockups %}
+<div class="card">
+  <h3>Kết quả — mockup người mẫu</h3>
+  <div class="images">
+    {% for m in model_result_mockups %}
+      <div>
+        <img src="{{ m.url }}" alt="mockup người mẫu" class="zoomable-mockup" style="cursor:zoom-in;">
+        <div style="margin-top:6px;">
+          <a href="{{ m.url }}" download><button type="button" class="btn-secondary" style="width:100%;">Tải về</button></a>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<p class="tpl-meta"><a href="{% url 'mockup_gallery' %}">📷 Xem tất cả mockup đã tạo →</a></p>
+
+<div class="modal-overlay" id="zoom-overlay">
+  <div class="modal-box" style="max-width:900px; padding:8px; text-align:center;">
+    <button type="button" class="modal-close" id="zoom-close">&times;</button>
+    <img id="zoom-img" src="" alt="mockup phóng to" style="max-width:100%; max-height:80vh; border-radius:8px;">
+  </div>
+</div>
+
+<script>
+  const zoomOverlay = document.getElementById('zoom-overlay');
+  const zoomImg = document.getElementById('zoom-img');
+  document.querySelectorAll('.zoomable-mockup').forEach((img) => {
+    img.addEventListener('click', () => {
+      zoomImg.src = img.src;
+      zoomOverlay.classList.add('open');
+    });
+  });
+  document.getElementById('zoom-close').addEventListener('click', () => zoomOverlay.classList.remove('open'));
+  zoomOverlay.addEventListener('click', (e) => { if (e.target === zoomOverlay) zoomOverlay.classList.remove('open'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') zoomOverlay.classList.remove('open'); });
+</script>
+
+<script>
+  const styleSelect = document.getElementById('style');
+  const customWrap = document.getElementById('custom-prompt-wrap');
+  function syncCustomPrompt() {
+    if (!styleSelect) return;
+    customWrap.style.display = styleSelect.value === 'custom' ? 'block' : 'none';
+  }
+  if (styleSelect) {
+    styleSelect.addEventListener('change', syncCustomPrompt);
+    syncCustomPrompt();
+  }
+
+  const modelSourceRadios = document.querySelectorAll('input[name="model_source"]');
+  const personaWrap = document.getElementById('persona-wrap');
+  const uploadWrap = document.getElementById('upload-wrap');
+  const modelPhotoInput = document.getElementById('model_photo');
+  function syncModelSource() {
+    const checked = document.querySelector('input[name="model_source"]:checked');
+    const isUpload = checked && checked.value === 'upload';
+    personaWrap.style.display = isUpload ? 'none' : 'block';
+    uploadWrap.style.display = isUpload ? 'block' : 'none';
+    if (modelPhotoInput) modelPhotoInput.required = isUpload;
+  }
+  if (modelSourceRadios.length) {
+    modelSourceRadios.forEach((r) => r.addEventListener('change', syncModelSource));
+    syncModelSource();
+  }
+
+  function guardSubmit(formId, btnId, busyText) {
+    const form = document.getElementById(formId);
+    const btn = document.getElementById(btnId);
+    if (!form || !btn) return;
+    let submitting = false;
+    form.addEventListener('submit', (e) => {
+      if (submitting) { e.preventDefault(); return; }
+      submitting = true;
+      btn.disabled = true;
+      btn.textContent = busyText;
+    });
+  }
+  guardSubmit('scene-form', 'scene-submit-btn', 'Đang tạo mockup... có thể mất khoảng 30s, vui lòng đợi');
+  guardSubmit('model-form', 'model-submit-btn', 'Đang tạo mockup... có thể mất khoảng 30s, vui lòng đợi');
+</script>
+
+{% endblock %}

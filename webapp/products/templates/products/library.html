@@ -6,15 +6,15 @@
   <h2>Thư viện — sản phẩm chưa publish</h2>
   <p class="tpl-meta">
     Danh sách các sản phẩm draft (chưa lên store) hiện có trên Printify.
-    Xóa được ngay tại đây, không cần nhớ link từng sản phẩm.
+    Publish/Xóa ngay tại đây — card sẽ tự biến mất khỏi danh sách khi xong,
+    không cần tải lại trang.
   </p>
 
-  {% if not drafts %}
-    <p class="tpl-meta">Không có draft nào.</p>
-  {% else %}
-  <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px; margin-top:16px;">
+  <div id="empty-msg" class="tpl-meta" style="{% if drafts %}display:none;{% endif %}">Không có draft nào.</div>
+
+  <div id="drafts-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px; margin-top:16px;">
     {% for d in drafts %}
-    <div class="card" style="padding:12px; margin-bottom:0;">
+    <div class="card" style="padding:12px; margin-bottom:0;" data-product-card>
       <a href="{% url 'product_detail' d.id %}">
         {% if d.thumb %}
           <img src="{{ d.thumb }}" alt="{{ d.title }}" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid #ddd;">
@@ -25,26 +25,63 @@
       <p style="font-size:0.85rem; font-weight:600; margin:8px 0 4px;">
         <a href="{% url 'product_detail' d.id %}" style="text-decoration:none;">{{ d.title }}</a>
       </p>
-      <form method="post" action="{% url 'delete_product' d.id %}" class="guarded-form"
-            onsubmit="return confirm('Xóa hẳn sản phẩm này khỏi Printify?');">
-        {% csrf_token %}
-        <button type="submit" class="btn-delete" style="width:100%; padding:6px; font-size:0.8rem;">Xóa</button>
-      </form>
+      <div style="display:flex; gap:6px;">
+        <form method="post" action="{% url 'publish_product' d.id %}" class="ajax-form" data-confirm="Publish sản phẩm này lên store thật?" data-busy-text="Đang publish..." style="flex:1;">
+          {% csrf_token %}
+          <button type="submit" class="btn-publish" style="width:100%; padding:6px; font-size:0.8rem;">Publish</button>
+        </form>
+        <form method="post" action="{% url 'delete_product' d.id %}" class="ajax-form" data-confirm="Xóa hẳn sản phẩm này khỏi Printify?" data-busy-text="Đang xóa..." style="flex:1;">
+          {% csrf_token %}
+          <button type="submit" class="btn-delete" style="width:100%; padding:6px; font-size:0.8rem;">Xóa</button>
+        </form>
+      </div>
     </div>
     {% endfor %}
   </div>
-  {% endif %}
 </div>
 
 <script>
-  document.querySelectorAll('.guarded-form').forEach((form) => {
-    let submitting = false;
-    form.addEventListener('submit', (e) => {
-      if (submitting) { e.preventDefault(); return; }
-      if (e.defaultPrevented) return;
-      submitting = true;
+  document.querySelectorAll('.ajax-form').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (form.dataset.busy) return;
+      if (!confirm(form.dataset.confirm)) return;
+
+      form.dataset.busy = '1';
       const btn = form.querySelector('button[type=submit]');
-      if (btn) { btn.disabled = true; btn.textContent = 'Đang xóa...'; }
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = form.dataset.busyText;
+
+      try {
+        const res = await fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        const data = await res.json();
+        if (data.ok) {
+          const card = form.closest('[data-product-card]');
+          card.style.transition = 'opacity 0.25s';
+          card.style.opacity = '0';
+          setTimeout(() => {
+            card.remove();
+            if (!document.querySelector('[data-product-card]')) {
+              document.getElementById('empty-msg').style.display = '';
+            }
+          }, 250);
+        } else {
+          alert('Lỗi: ' + (data.error || 'không rõ nguyên nhân'));
+          btn.disabled = false;
+          btn.textContent = originalText;
+          delete form.dataset.busy;
+        }
+      } catch (err) {
+        alert('Lỗi kết nối: ' + err);
+        btn.disabled = false;
+        btn.textContent = originalText;
+        delete form.dataset.busy;
+      }
     });
   });
 </script>
