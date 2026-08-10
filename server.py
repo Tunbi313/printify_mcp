@@ -413,6 +413,32 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                           "transparent background, no color, no gradients, no "
                           "photorealistic shading.",
     },
+    # Mini Adventure Temporary Tattoos — provider 69, blueprint 2036.
+    # Sunfade store. Fine-line flash-sheet style, transparent PNG, DTF.
+    # 1 image scales across all 5 sizes. Default variant = XXL (largest).
+    # Margins: ~40% across sizes (S ~40%, L ~40%, XL ~40%, XXL ~40%).
+    "temp_tattoo": {
+        "blueprint_id": 2036,
+        "print_provider_id": 69,
+        "variants": [
+            {"id": 125280, "label": "S_2x3", "price": 503},
+            {"id": 125279, "label": "M_3x4", "price": 610},
+            {"id": 125278, "label": "L_4x6", "price": 828},
+            {"id": 125281, "label": "XL_7.75x7.75", "price": 1330},
+            {"id": 125282, "label": "XXL_11.75x11.75", "price": 2517},
+        ],
+        "placeholder": {"x": 0.5, "y": 0.5, "scale": 0.5779911111111111,
+                         "angle": 0, "flipX": False, "flipY": False},
+        "decoration_method": "dtf",
+        "artwork_spec": "2048x2048 px PNG, FULLY TRANSPARENT background. "
+                        "Multiple small motifs (4-6) scattered as a flash "
+                        "sheet with clear space between each — printed as "
+                        "ONE sheet covering all sizes (customer cuts apart "
+                        "designs themselves). Fine-line black ink or "
+                        "watercolor, Sunfade vintage outdoor/national park "
+                        "style — mountains, compass, botanical sprigs, "
+                        "moon/stars, tent/campfire.",
+    },
     
 
 }

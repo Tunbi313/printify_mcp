@@ -17,6 +17,8 @@
       {% endfor %}
     </select>
     <div class="tpl-meta" id="tpl-meta"></div>
+    <div class="tpl-meta" id="tpl-images-status"></div>
+    <div id="tpl-images" class="images"></div>
 
     <label for="image">Ảnh design</label>
     <input type="file" name="image" id="image" accept=".png,.jpg,.jpeg" required>
@@ -151,13 +153,47 @@
 
   imageInput.addEventListener('change', autoFillFromImage);
 
+  const tplImagesEl = document.getElementById('tpl-images');
+  const tplImagesStatus = document.getElementById('tpl-images-status');
+  const tplImagesCache = {};
+
+  function loadTemplateImages(key) {
+    tplImagesEl.innerHTML = '';
+    if (!key) { tplImagesStatus.textContent = ''; return; }
+
+    if (tplImagesCache[key]) {
+      renderTemplateImages(tplImagesCache[key]);
+      return;
+    }
+
+    tplImagesStatus.textContent = 'Đang tải ảnh sản phẩm mẫu...';
+    fetch(`/templates/${key}/images/`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { tplImagesStatus.textContent = data.error; return; }
+        tplImagesCache[key] = data.images || [];
+        renderTemplateImages(tplImagesCache[key]);
+      })
+      .catch(() => { tplImagesStatus.textContent = 'Lỗi khi tải ảnh mẫu.'; });
+  }
+
+  function renderTemplateImages(images) {
+    if (!images.length) {
+      tplImagesStatus.textContent = 'Không có ảnh mẫu cho template này.';
+      return;
+    }
+    tplImagesStatus.textContent = 'Ảnh sản phẩm mẫu (từ Printify — chưa có design của bạn):';
+    tplImagesEl.innerHTML = images.map(src => `<img src="${src}" alt="mẫu sản phẩm">`).join('');
+  }
+
   select.addEventListener('change', () => {
     const opt = select.selectedOptions[0];
-    if (!opt) { meta.textContent = ''; return; }
+    if (!opt) { meta.textContent = ''; tplImagesEl.innerHTML = ''; tplImagesStatus.textContent = ''; return; }
     meta.textContent = `Sizes: ${opt.dataset.sizes} — Artwork spec: ${opt.dataset.spec}`;
     if (opt.dataset.description) {
       setDescription(opt.dataset.description);
     }
+    loadTemplateImages(select.value);
     autoFillFromImage();
   });
 

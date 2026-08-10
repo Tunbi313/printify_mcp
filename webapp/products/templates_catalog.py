@@ -791,4 +791,69 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             "minimalist glass",
         ],
     },
+    "temp_tattoo": {
+        "label": "Temporary Tattoo Flash Sheet (DTF)",
+        "blueprint_id": 2036,
+        "print_provider_id": 69,
+        "variants": [
+            {"id": 125280, "label": "S_2x3", "price": 503},
+            {"id": 125279, "label": "M_3x4", "price": 610},
+            {"id": 125278, "label": "L_4x6", "price": 828},
+            {"id": 125281, "label": "XL_7.75x7.75", "price": 1330},
+            {"id": 125282, "label": "XXL_11.75x11.75", "price": 2517},
+        ],
+        "placeholder": {"x": 0.5, "y": 0.5, "scale": 0.5779911111111111,
+                         "angle": 0, "flipX": False, "flipY": False},
+        "decoration_method": "dtf",
+        "artwork_spec": "2048x2048 px PNG, FULLY TRANSPARENT background. "
+                        "Multiple small motifs (4-6) scattered as a flash "
+                        "sheet with clear space between each — printed as "
+                        "ONE sheet covering all sizes (customer cuts apart "
+                        "designs themselves). Fine-line black ink or "
+                        "watercolor, Sunfade vintage outdoor/national park "
+                        "style — mountains, compass, botanical sprigs, "
+                        "moon/stars, tent/campfire.",
+        "target_width": 2048,
+        "target_height": 2048,
+        "transparent_bg": True,
+        "sample_prompt": "Temporary tattoo flash sheet with 4-6 small "
+                          "scattered motifs — mountains, compass, botanical "
+                          "sprigs, moon and stars, tent and campfire — "
+                          "fine-line black ink or light watercolor, Sunfade "
+                          "vintage outdoor/national park style, clear space "
+                          "between each design, no color blocks, transparent "
+                          "background, no text.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Material: water-transfer temporary tattoo paper</li>"
+            "<li>Lasts 3-5 days with normal wear</li>"
+            "<li>Available in 5 sizes, from 2x3in up to 11.75x11.75in</li>"
+            "<li>Waterproof and smudge-resistant once applied</li>"
+            "</ul>"
+            "<p>A flash sheet of small vintage outdoor designs, ready to "
+            "share the adventure on your skin. Apply with water in under a "
+            "minute — no adhesive residue, no commitment. Great for "
+            "festivals, hikes, or just trying out a design before it's "
+            "permanent.</p>"
+            "<p><strong>Application</strong></p>"
+            "<p>Cut out the design, remove the clear film, press face-down "
+            "onto clean skin, hold a wet cloth over the backing for "
+            "30 seconds, then peel off the paper.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><th></th><th>Width</th><th>Height</th></tr>"
+            "<tr><td>S</td><td>2 in</td><td>3 in</td></tr>"
+            "<tr><td>M</td><td>3 in</td><td>4 in</td></tr>"
+            "<tr><td>L</td><td>4 in</td><td>6 in</td></tr>"
+            "<tr><td>XL</td><td>7.75 in</td><td>7.75 in</td></tr>"
+            "<tr><td>XXL</td><td>11.75 in</td><td>11.75 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "temporary tattoo", "flash sheet", "national park", "outdoor",
+            "vintage tattoo", "fine line tattoo", "festival", "hiking",
+            "adventure", "gift", "fake tattoo", "nature lover",
+        ],
+    },
 }
