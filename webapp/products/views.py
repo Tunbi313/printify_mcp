@@ -9,13 +9,22 @@ from django.contrib import messages
 from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.core.paginator import Paginator
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
+
+
+def _safe_next(request, next_url):
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return next_url
+    return None
 
 from . import fal_upscale
 from . import openrouter_client
 from . import printify_client as pc
+from .models import AiMockup
 from .templates_catalog import TEMPLATES
 
 GENERIC_FILENAME_WORDS = {
@@ -368,7 +377,7 @@ def create_product(request):
 def library_page(request):
     try:
         shop_id = pc.default_shop_id()
-        products = pc.list_products(shop_id, limit=50)
+        products = pc.list_all_products(shop_id)
     except Exception as exc:
         messages.error(request, f"Không lấy được danh sách sản phẩm: {exc}")
         products = []
@@ -407,26 +416,329 @@ def product_detail(request, product_id):
     return render(request, "products/detail.html", context)
 
 
+MOCKUP_STYLES = {
+    "cozy_living_room": {
+        "label": "Phòng khách ấm cúng",
+        "prompt": "a realistic professional product photo of the item "
+                  "standing upright on a light wood coffee table in a cozy "
+                  "modern living room, soft warm natural window light, "
+                  "gently blurred background, sharp focus and natural soft "
+                  "shadow directly beneath the product, true-to-life colors",
+    },
+    "outdoor_camp": {
+        "label": "Bàn gỗ ngoài trời / dã ngoại",
+        "prompt": "a realistic professional product photo of the item "
+                  "standing upright on a rustic weathered wood picnic "
+                  "table outdoors at a campsite, bright natural daylight, "
+                  "gently blurred green forest background, sharp focus and "
+                  "natural soft shadow directly beneath the product, "
+                  "true-to-life colors",
+    },
+    "minimal_studio": {
+        "label": "Studio tối giản",
+        "prompt": "a realistic professional product photo of the item "
+                  "standing upright on a plain light grey studio backdrop, "
+                  "soft even studio lighting, sharp focus, natural soft "
+                  "shadow directly beneath the product, true-to-life colors, "
+                  "e-commerce catalog style",
+    },
+    "cafe_table": {
+        "label": "Bàn quán cà phê",
+        "prompt": "a realistic professional product photo of the item "
+                  "standing upright on a natural wood grain café table next "
+                  "to a cup of coffee, soft warm daylight through a nearby "
+                  "window, gently blurred cozy coffee shop background, sharp "
+                  "focus and natural soft shadow directly beneath the "
+                  "product, true-to-life colors",
+    },
+}
+
+
+MODEL_ACTION_HINTS = {
+    "tshirt": "wearing this exact t-shirt, the printed design clearly "
+              "visible and unaltered on the front, natural fit, front-facing pose",
+    "hat": "wearing this exact trucker hat on their head, natural angle, realistic fit",
+    "hat_vintage_a": "wearing this exact dad hat on their head, natural angle, realistic fit",
+    "hat_vintage_b": "wearing this exact cap on their head, natural angle, realistic fit",
+    "mug": "holding this exact mug with both hands close to their chest, cozy setting",
+    "stein_mug": "holding this exact stein mug in one hand, casual pose",
+    "tumbler": "holding this exact tumbler in one hand, casual outdoor pose",
+    "candle": "holding this exact candle jar in both hands, cozy home setting",
+    "can_glass_engraved": "holding this exact glass in one hand, casual pose",
+}
+GENERIC_MODEL_ACTION = "naturally holding or displaying this exact product, realistic lifestyle photo"
+
+MODEL_PERSONAS = {
+    "diverse": {
+        "label": "Ngẫu nhiên / đa dạng",
+        "prompt": "a fictional, generic-looking adult model (not a real "
+                  "celebrity or public figure), natural friendly expression",
+    },
+    "female_casual": {
+        "label": "Nữ trẻ, phong cách casual",
+        "prompt": "a fictional young adult woman (not a real celebrity or "
+                  "public figure), casual everyday style, natural friendly expression",
+    },
+    "male_casual": {
+        "label": "Nam trẻ, phong cách casual",
+        "prompt": "a fictional young adult man (not a real celebrity or "
+                  "public figure), casual everyday style, natural friendly expression",
+    },
+}
+
+
+def _guess_model_action(product: dict) -> str:
+    blueprint_id = product.get("blueprint_id")
+    for key, tpl in TEMPLATES.items():
+        if tpl.get("blueprint_id") == blueprint_id:
+            return MODEL_ACTION_HINTS.get(key, GENERIC_MODEL_ACTION)
+    return GENERIC_MODEL_ACTION
+
+
+def _save_ai_images(product_id: str, generated: list, product_title: str,
+                     kind: str, label: str) -> list:
+    saved = []
+    for image_bytes, content_type in generated:
+        ext = "png" if "png" in content_type else "jpg"
+        filename = f"ai_mockups/{product_id}_{uuid.uuid4().hex[:8]}.{ext}"
+        saved_path = default_storage.save(filename, ContentFile(image_bytes))
+        saved.append(AiMockup.objects.create(
+            product_id=product_id, product_title=product_title,
+            kind=kind, label=label, file_path=saved_path,
+        ))
+    return saved
+
+
+def mockup_gallery(request):
+    mockups = AiMockup.objects.all()[:300]
+    return render(request, "products/mockup_gallery.html", {"mockups": mockups})
+
+
+def mockup_delete(request, mockup_id):
+    if request.method != "POST":
+        return redirect("mockup_gallery")
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    try:
+        mockup = AiMockup.objects.get(id=mockup_id)
+    except AiMockup.DoesNotExist:
+        if is_ajax:
+            return JsonResponse({"ok": False, "error": "Không tìm thấy ảnh."}, status=404)
+        messages.error(request, "Không tìm thấy ảnh.")
+        return redirect("mockup_gallery")
+
+    default_storage.delete(mockup.file_path)
+    mockup.delete()
+    if is_ajax:
+        return JsonResponse({"ok": True})
+    messages.success(request, "Đã xóa ảnh mockup.")
+    return redirect("mockup_gallery")
+
+
+MOCKUP_STUDIO_PAGE_SIZE = 30
+
+
+def mockup_studio_index(request):
+    try:
+        shop_id = pc.default_shop_id()
+        products = pc.list_all_products(shop_id)
+    except Exception as exc:
+        messages.error(request, f"Không lấy được danh sách sản phẩm: {exc}")
+        products = []
+
+    published = []
+    for p in products:
+        external = p.get("external") or {}
+        if not external.get("id"):
+            continue  # draft, not published — mockup studio only works on live products
+        images = p.get("images") or []
+        published.append({
+            "id": p["id"],
+            "title": p["title"],
+            "thumb": images[0]["src"] if images else None,
+        })
+
+    paginator = Paginator(published, MOCKUP_STUDIO_PAGE_SIZE)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    return render(request, "products/mockup_studio_index.html", {"page_obj": page_obj})
+
+
+def mockup_studio(request, product_id):
+    shop_id = pc.default_shop_id()
+    try:
+        product = pc.get_product(product_id, shop_id)
+    except Exception as exc:
+        messages.error(request, f"Không lấy được sản phẩm: {exc}")
+        return redirect("index")
+
+    external = product.get("external") or {}
+    if not external.get("id"):
+        messages.error(request, "Mockup Studio chỉ áp dụng cho sản phẩm đã publish lên store.")
+        return redirect("mockup_studio_index")
+
+    source_images = [img.get("src") for img in product.get("images", []) if img.get("src")]
+    context = {
+        "product": product,
+        "source_images": source_images,
+        "styles": MOCKUP_STYLES,
+        "personas": MODEL_PERSONAS,
+        "default_model_action": _guess_model_action(product),
+    }
+
+    if request.method != "POST":
+        return render(request, "products/mockup_studio.html", context)
+
+    mode = request.POST.get("mode", "scene")
+    if mode == "model":
+        return _mockup_studio_model_post(request, product_id, source_images, context)
+    return _mockup_studio_scene_post(request, product_id, source_images, context)
+
+
+def _mockup_studio_scene_post(request, product_id, source_images, context):
+    source_image = request.POST.get("source_image", "")
+    style_key = request.POST.get("style", "custom")
+    custom_prompt = request.POST.get("custom_prompt", "").strip()
+    try:
+        num_results = int(request.POST.get("num_results", 2))
+    except ValueError:
+        num_results = 2
+    num_results = max(1, min(4, num_results))
+
+    context["selected_source_image"] = source_image
+    context["selected_style"] = style_key
+    context["custom_prompt"] = custom_prompt
+    context["num_results"] = num_results
+
+    if source_image not in source_images:
+        messages.error(request, "Ảnh gốc không hợp lệ.")
+        return render(request, "products/mockup_studio.html", context)
+
+    preset = MOCKUP_STYLES.get(style_key)
+    scene_description = custom_prompt if style_key == "custom" else (preset["prompt"] if preset else "")
+    if not scene_description:
+        messages.error(request, "Bạn chưa nhập mô tả bối cảnh (chọn 'Tuỳ chỉnh' thì phải điền mô tả).")
+        return render(request, "products/mockup_studio.html", context)
+
+    try:
+        generated = fal_upscale.generate_product_shot(source_image, scene_description, num_results)
+    except Exception as exc:
+        messages.error(request, f"Lỗi khi tạo mockup: {exc}")
+        return render(request, "products/mockup_studio.html", context)
+
+    style_label = preset["label"] if preset else "Tuỳ chỉnh"
+    result_mockups = _save_ai_images(
+        product_id, generated, context["product"].get("title", ""), "scene", style_label,
+    )
+    if not result_mockups:
+        messages.error(request, "Không tạo được mockup nào — thử lại hoặc đổi mô tả bối cảnh.")
+
+    context["result_mockups"] = result_mockups
+    context["result_style_label"] = style_label
+    return render(request, "products/mockup_studio.html", context)
+
+
+def _mockup_studio_model_post(request, product_id, source_images, context):
+    product_image = request.POST.get("model_product_image", "")
+    action = request.POST.get("model_action", "").strip()
+    model_source = request.POST.get("model_source", "ai")
+    persona_key = request.POST.get("model_persona", "diverse")
+    model_photo = request.FILES.get("model_photo")
+    try:
+        num_images = int(request.POST.get("model_num_images", 1))
+    except ValueError:
+        num_images = 1
+    num_images = max(1, min(4, num_images))
+
+    context["selected_model_product_image"] = product_image
+    context["model_action"] = action
+    context["model_source"] = model_source
+    context["model_persona"] = persona_key
+    context["model_num_images"] = num_images
+
+    if product_image not in source_images:
+        messages.error(request, "Ảnh sản phẩm không hợp lệ.")
+        return render(request, "products/mockup_studio.html", context)
+    if not action:
+        messages.error(request, "Bạn chưa mô tả người mẫu sẽ làm gì với sản phẩm.")
+        return render(request, "products/mockup_studio.html", context)
+
+    try:
+        if model_source == "upload":
+            if not model_photo:
+                messages.error(request, "Bạn chưa upload ảnh người mẫu.")
+                return render(request, "products/mockup_studio.html", context)
+            model_photo_url = fal_upscale.upload_image_bytes(
+                model_photo.read(), model_photo.content_type or "image/jpeg",
+            )
+            prompt = (
+                "The first image shows a product with a specific printed "
+                "design. The second image shows a real person. Edit the "
+                f"second image so the person is {action}. Keep the "
+                "person's face, body, pose and background from the second "
+                "image unchanged. Keep the product's exact printed design, "
+                "colors, shape and text from the first image unchanged — "
+                "do not alter or reinterpret it. Photorealistic result."
+            )
+            image_urls = [product_image, model_photo_url]
+        else:
+            persona = MODEL_PERSONAS.get(persona_key, MODEL_PERSONAS["diverse"])
+            prompt = (
+                "The provided image shows a product with a specific "
+                f"printed design. Generate a new, photorealistic lifestyle "
+                f"photo of {persona['prompt']} who is {action}. The "
+                "product's exact printed design, colors, shape and text "
+                "from the provided image must remain unchanged — do not "
+                "alter or reinterpret it. Natural lighting, realistic "
+                "setting, high quality photography."
+            )
+            image_urls = [product_image]
+
+        generated = fal_upscale.generate_model_mockup(image_urls, prompt, num_images)
+    except Exception as exc:
+        messages.error(request, f"Lỗi khi tạo mockup người mẫu: {exc}")
+        return render(request, "products/mockup_studio.html", context)
+
+    result_mockups = _save_ai_images(
+        product_id, generated, context["product"].get("title", ""), "model", action,
+    )
+    if not result_mockups:
+        messages.error(request, "Không tạo được mockup nào — thử lại hoặc đổi mô tả.")
+
+    context["model_result_mockups"] = result_mockups
+    return render(request, "products/mockup_studio.html", context)
+
+
 def publish_product(request, product_id):
     if request.method != "POST":
         return redirect("product_detail", product_id=product_id)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    next_url = _safe_next(request, request.POST.get("next"))
     shop_id = pc.default_shop_id()
     try:
         pc.publish_product(product_id, shop_id)
-        messages.success(request, "Đã gửi yêu cầu publish lên store.")
+        if is_ajax:
+            return JsonResponse({"ok": True})
+        messages.success(request, f"Đã gửi yêu cầu publish sản phẩm {product_id} lên store.")
     except Exception as exc:
+        if is_ajax:
+            return JsonResponse({"ok": False, "error": str(exc)}, status=400)
         messages.error(request, f"Lỗi khi publish: {exc}")
-    return redirect("product_detail", product_id=product_id)
+    return redirect(next_url) if next_url else redirect("product_detail", product_id=product_id)
 
 
 def delete_product(request, product_id):
     if request.method != "POST":
         return redirect("product_detail", product_id=product_id)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    next_url = _safe_next(request, request.POST.get("next"))
     shop_id = pc.default_shop_id()
     try:
         pc.delete_product(product_id, shop_id)
+        if is_ajax:
+            return JsonResponse({"ok": True})
         messages.success(request, "Đã xóa sản phẩm.")
     except Exception as exc:
+        if is_ajax:
+            return JsonResponse({"ok": False, "error": str(exc)}, status=400)
         messages.error(request, f"Lỗi khi xóa: {exc}")
-        return redirect("product_detail", product_id=product_id)
-    return redirect("library_page")
+        return redirect(next_url) if next_url else redirect("product_detail", product_id=product_id)
+    return redirect(next_url) if next_url else redirect("library_page")

@@ -2,7 +2,11 @@
 {% block title %}{{ product.title }}{% endblock %}
 {% block content %}
 
-<p><a href="{% url 'library_page' %}" style="text-decoration:none; font-weight:600;">&larr; Quay lại thư viện</a></p>
+{% if is_published %}
+  <p><a href="{% url 'mockup_studio_index' %}" style="text-decoration:none; font-weight:600;">&larr; Quay lại Mockup Studio</a></p>
+{% else %}
+  <p><a href="{% url 'library_page' %}" style="text-decoration:none; font-weight:600;">&larr; Quay lại thư viện</a></p>
+{% endif %}
 
 <div class="card">
   <span class="badge">{% if is_published %}Published{% else %}Draft (chưa lên store){% endif %}</span>
@@ -19,6 +23,11 @@
         <img src="{{ src }}" alt="mockup">
       {% endfor %}
     </div>
+    {% if is_published %}
+      <a href="{% url 'mockup_studio' product.id %}"><button type="button" class="btn-secondary">Tạo mockup AI</button></a>
+    {% else %}
+      <p class="tpl-meta">Publish sản phẩm này lên store để dùng Mockup Studio.</p>
+    {% endif %}
   {% else %}
     <p><em>Mockup đang được Printify render, thử tải lại trang sau vài giây.</em></p>
     <a href="{% url 'product_detail' product.id %}"><button type="button" class="btn-secondary">Tải lại</button></a>

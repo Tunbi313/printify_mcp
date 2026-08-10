@@ -1,0 +1,105 @@
+{% extends "products/base.html" %}
+{% block title %}Thư viện mockup AI{% endblock %}
+{% block content %}
+
+<p><a href="{% url 'mockup_studio_index' %}" style="text-decoration:none; font-weight:600;">&larr; Quay lại Mockup Studio</a></p>
+
+<div class="card">
+  <h2>Thư viện mockup AI</h2>
+  <p class="tpl-meta">Tất cả ảnh mockup AI đã tạo (bối cảnh + người mẫu), mới nhất trước. Bấm ảnh để xem to, tải về hoặc xóa ngay tại đây.</p>
+
+  <div id="empty-msg" class="tpl-meta" style="{% if mockups %}display:none;{% endif %}">Chưa tạo mockup AI nào.</div>
+
+  <div id="mockups-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:16px; margin-top:16px;">
+    {% for m in mockups %}
+    <div class="card" style="padding:10px; margin-bottom:0;" data-mockup-card>
+      <img src="{{ m.url }}" alt="{{ m.label }}" class="zoomable-mockup"
+           style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid #ddd; cursor:zoom-in; display:block;">
+      <p style="font-size:0.8rem; font-weight:600; margin:8px 0 2px;">
+        <a href="{% url 'product_detail' m.product_id %}" style="text-decoration:none;">{{ m.product_title|default:"(sản phẩm đã xóa)" }}</a>
+      </p>
+      <p class="tpl-meta" style="margin:0 0 8px;">
+        <span class="badge">{{ m.get_kind_display }}</span>
+        {% if m.label %} · {{ m.label }}{% endif %}
+      </p>
+      <div style="display:flex; gap:6px;">
+        <a href="{{ m.url }}" download style="flex:1;"><button type="button" class="btn-secondary" style="width:100%; padding:6px; font-size:0.8rem;">Tải về</button></a>
+        <form method="post" action="{% url 'mockup_delete' m.id %}" class="ajax-delete-form" data-confirm="Xóa ảnh mockup này?" style="flex:1;">
+          {% csrf_token %}
+          <button type="submit" class="btn-delete" style="width:100%; padding:6px; font-size:0.8rem;">Xóa</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="modal-overlay" id="zoom-overlay">
+  <div class="modal-box" style="max-width:900px; padding:8px; text-align:center;">
+    <button type="button" class="modal-close" id="zoom-close">&times;</button>
+    <img id="zoom-img" src="" alt="mockup phóng to" style="max-width:100%; max-height:80vh; border-radius:8px;">
+  </div>
+</div>
+
+<script>
+  const zoomOverlay = document.getElementById('zoom-overlay');
+  const zoomImg = document.getElementById('zoom-img');
+  function bindZoom() {
+    document.querySelectorAll('.zoomable-mockup').forEach((img) => {
+      img.onclick = () => {
+        zoomImg.src = img.src;
+        zoomOverlay.classList.add('open');
+      };
+    });
+  }
+  bindZoom();
+  document.getElementById('zoom-close').addEventListener('click', () => zoomOverlay.classList.remove('open'));
+  zoomOverlay.addEventListener('click', (e) => { if (e.target === zoomOverlay) zoomOverlay.classList.remove('open'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') zoomOverlay.classList.remove('open'); });
+
+  document.querySelectorAll('.ajax-delete-form').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (form.dataset.busy) return;
+      if (!confirm(form.dataset.confirm)) return;
+
+      form.dataset.busy = '1';
+      const btn = form.querySelector('button[type=submit]');
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Đang xóa...';
+
+      try {
+        const res = await fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        const data = await res.json();
+        if (data.ok) {
+          const card = form.closest('[data-mockup-card]');
+          card.style.transition = 'opacity 0.25s';
+          card.style.opacity = '0';
+          setTimeout(() => {
+            card.remove();
+            if (!document.querySelector('[data-mockup-card]')) {
+              document.getElementById('empty-msg').style.display = '';
+            }
+          }, 250);
+        } else {
+          alert('Lỗi: ' + (data.error || 'không rõ nguyên nhân'));
+          btn.disabled = false;
+          btn.textContent = originalText;
+          delete form.dataset.busy;
+        }
+      } catch (err) {
+        alert('Lỗi kết nối: ' + err);
+        btn.disabled = false;
+        btn.textContent = originalText;
+        delete form.dataset.busy;
+      }
+    });
+  });
+</script>
+
+{% endblock %}
