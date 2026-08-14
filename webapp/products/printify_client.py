@@ -34,6 +34,12 @@ def default_shop_id() -> str:
     return shop
 
 
+def list_shops() -> list[dict]:
+    """All Printify-connected shops on this account (Shopify, Etsy,
+    Amazon, etc.), used to let the user switch which one the app acts on."""
+    return _request("GET", "/shops.json")
+
+
 def _request(method: str, path: str, json=None, retries: int = 4):
     url = f"{API_BASE}{path}"
     delay = 2.0

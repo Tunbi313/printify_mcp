@@ -325,6 +325,21 @@
         </a>
       </nav>
 
+      {% if available_shops %}
+      <div class="nav-group">
+        <div class="nav-eyebrow">Shop đang thao tác</div>
+        <form method="post" action="{% url 'set_shop' %}" id="shop-switch-form">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <select name="shop_id" id="shop-select" style="font-size:0.82rem; padding:7px 8px;">
+            {% for s in available_shops %}
+              <option value="{{ s.id }}" {% if s.id|stringformat:"s" == current_shop_id %}selected{% endif %}>{{ s.title }} ({{ s.sales_channel }}) — {{ s.id }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+      {% endif %}
+
       <div class="rail-foot">
         <div class="theme-toggle" role="group" aria-label="Đổi giao diện sáng tối" id="theme-toggle">
           <button type="button" data-theme-btn="light">Sáng</button>
@@ -374,6 +389,11 @@
     scrimEl.addEventListener('click', closeNav);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNav(); });
     railEl.querySelectorAll('.nav-item').forEach((a) => a.addEventListener('click', closeNav));
+
+    const shopSelect = document.getElementById('shop-select');
+    if (shopSelect) {
+      shopSelect.addEventListener('change', () => document.getElementById('shop-switch-form').submit());
+    }
 
     const root = document.documentElement;
     const stored = localStorage.getItem('sunfade-theme');

@@ -22,6 +22,31 @@ def _safe_next(request, next_url):
         return next_url
     return None
 
+
+def _current_shop_id(request) -> str:
+    """The Printify shop the app currently acts on — whichever the user
+    picked via the sidebar switcher (stored in session), falling back to
+    PRINTIFY_SHOP_ID for anyone who hasn't picked one yet."""
+    return request.session.get("shop_id") or pc.default_shop_id()
+
+
+def set_shop(request):
+    if request.method != "POST":
+        return redirect("index")
+    shop_id = request.POST.get("shop_id", "")
+    try:
+        valid_ids = {str(s["id"]) for s in pc.list_shops()}
+    except Exception as exc:
+        messages.error(request, f"Không lấy được danh sách shop: {exc}")
+        valid_ids = set()
+    if shop_id in valid_ids:
+        request.session["shop_id"] = shop_id
+        messages.success(request, "Đã chuyển shop đang thao tác.")
+    else:
+        messages.error(request, "Shop không hợp lệ.")
+    next_url = _safe_next(request, request.POST.get("next"))
+    return redirect(next_url) if next_url else redirect("index")
+
 from . import fal_studio
 from . import fal_upscale
 from . import fal_video
@@ -405,7 +430,7 @@ def batch_page(request):
     description = tpl.get("default_description", "")
 
     try:
-        shop_id = pc.default_shop_id()
+        shop_id = _current_shop_id(request)
     except Exception as exc:
         messages.error(request, f"Lỗi cấu hình shop: {exc}")
         return redirect("batch_page")
@@ -535,7 +560,7 @@ def create_product(request):
         return redirect("index")
 
     try:
-        shop_id = pc.default_shop_id()
+        shop_id = _current_shop_id(request)
         uploaded = pc.upload_artwork_file(image_file.read(), image_file.name)
         product = pc.create_from_template(
             tpl, uploaded["id"], title, description, tags, shop_id,
@@ -550,7 +575,7 @@ def create_product(request):
 
 def library_page(request):
     try:
-        shop_id = pc.default_shop_id()
+        shop_id = _current_shop_id(request)
         products = pc.list_all_products(shop_id)
     except Exception as exc:
         messages.error(request, f"Không lấy được danh sách sản phẩm: {exc}")
@@ -571,7 +596,7 @@ def library_page(request):
 
 
 def product_detail(request, product_id):
-    shop_id = pc.default_shop_id()
+    shop_id = _current_shop_id(request)
     try:
         product = pc.get_product(product_id, shop_id)
     except Exception as exc:
@@ -755,7 +780,7 @@ MOCKUP_STUDIO_PAGE_SIZE = 30
 
 def mockup_studio_index(request):
     try:
-        shop_id = pc.default_shop_id()
+        shop_id = _current_shop_id(request)
         published = _list_published_products(shop_id)
     except Exception as exc:
         messages.error(request, f"Không lấy được danh sách sản phẩm: {exc}")
@@ -767,7 +792,7 @@ def mockup_studio_index(request):
 
 
 def mockup_studio(request, product_id):
-    shop_id = pc.default_shop_id()
+    shop_id = _current_shop_id(request)
     try:
         product = pc.get_product(product_id, shop_id)
     except Exception as exc:
@@ -916,7 +941,7 @@ VIDEO_STUDIO_PAGE_SIZE = 30
 
 def video_studio_index(request):
     try:
-        shop_id = pc.default_shop_id()
+        shop_id = _current_shop_id(request)
         published = _list_published_products(shop_id)
     except Exception as exc:
         messages.error(request, f"Không lấy được danh sách sản phẩm: {exc}")
@@ -928,7 +953,7 @@ def video_studio_index(request):
 
 
 def video_studio(request, product_id):
-    shop_id = pc.default_shop_id()
+    shop_id = _current_shop_id(request)
     try:
         product = pc.get_product(product_id, shop_id)
     except Exception as exc:
@@ -940,15 +965,28 @@ def video_studio(request, product_id):
         messages.error(request, "Video AI chỉ áp dụng cho sản phẩm đã publish lên store.")
         return redirect("video_studio_index")
 
-    source_images = [img.get("src") for img in product.get("images", []) if img.get("src")]
+    original_images = [img.get("src") for img in product.get("images", []) if img.get("src")]
+    mockup_kind_labels = dict(AiMockup.KIND_CHOICES)
+    ai_mockups = AiMockup.objects.filter(product_id=product_id)
+    image_choices = (
+        [{"src": s, "tag": "Ảnh gốc"} for s in original_images]
+        + [
+            {"src": m.url, "tag": f"🤖 {m.label or mockup_kind_labels.get(m.kind, 'AI')}"}
+            for m in ai_mockups
+        ]
+    )
+    source_images = [c["src"] for c in image_choices]
     context = {
         "product": product,
         "source_images": source_images,
+        "image_choices": image_choices,
         "default_prompt": _guess_video_motion(product),
-        "durations": fal_video.KLING_DURATIONS,  # same set for both models
+        "duration_min": fal_video.DURATION_MIN,
+        "duration_max": fal_video.DURATION_MAX,
         "resolutions": fal_video.SEEDANCE_RESOLUTIONS,
         "aspect_ratios": fal_video.ASPECT_RATIOS,
         "generate_audio": True,
+        "selected_duration": 6,
     }
 
     if request.method != "POST":
@@ -956,14 +994,16 @@ def video_studio(request, product_id):
 
     source_image = request.POST.get("source_image", "")
     model = request.POST.get("model", "kling")
-    if model not in ("kling", "seedance"):
+    if model not in ("kling", "seedance", "ltx"):
         model = "kling"
     prompt = request.POST.get("prompt", "").strip()
-    duration = request.POST.get("duration", "5")
+    duration = fal_video.clamp_duration(model, request.POST.get("duration"))
     resolution = request.POST.get("resolution", "720p")
     aspect_ratio = request.POST.get("aspect_ratio", "16:9")
     if aspect_ratio not in fal_video.ASPECT_RATIOS:
         aspect_ratio = fal_video.ASPECT_RATIOS[0]
+    if model == "ltx":
+        aspect_ratio = "16:9"  # LTX only outputs 16:9, no param to change it
     generate_audio = request.POST.get("generate_audio") == "on"
 
     context.update({
@@ -985,16 +1025,17 @@ def video_studio(request, product_id):
 
     try:
         if model == "seedance":
-            if duration not in fal_video.SEEDANCE_DURATIONS:
-                duration = fal_video.SEEDANCE_DURATIONS[0]
             if resolution not in fal_video.SEEDANCE_RESOLUTIONS:
                 resolution = fal_video.SEEDANCE_RESOLUTIONS[0]
             video_bytes, content_type = fal_video.generate_seedance_video(
                 source_image, prompt, duration, resolution, aspect_ratio, generate_audio,
             )
+        elif model == "ltx":
+            resolution = "1080p"
+            video_bytes, content_type = fal_video.generate_ltx_video(
+                source_image, prompt, duration,
+            )
         else:
-            if duration not in fal_video.KLING_DURATIONS:
-                duration = fal_video.KLING_DURATIONS[0]
             resolution = "720p"  # Kling has no resolution knob; kept for cost estimate consistency
             video_bytes, content_type = fal_video.generate_kling_video(
                 source_image, prompt, duration, aspect_ratio,
@@ -1008,7 +1049,7 @@ def video_studio(request, product_id):
     saved_path = default_storage.save(filename, ContentFile(video_bytes))
     result_video = AiVideo.objects.create(
         product_id=product_id, product_title=product.get("title", ""),
-        model=model, prompt=prompt, duration=duration, aspect_ratio=aspect_ratio,
+        model=model, prompt=prompt, duration=str(duration), aspect_ratio=aspect_ratio,
         cost_usd=cost, file_path=saved_path,
     )
     context["result_video"] = result_video
@@ -1022,47 +1063,177 @@ def video_generate_prompts(request, product_id):
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
 
-    shop_id = pc.default_shop_id()
+    shop_id = _current_shop_id(request)
     try:
         product = pc.get_product(product_id, shop_id)
     except Exception as exc:
         return JsonResponse({"error": f"Không lấy được sản phẩm: {exc}"}, status=502)
 
-    image_urls = [img.get("src") for img in product.get("images", []) if img.get("src")]
-    image_urls = image_urls[:VIDEO_PROMPT_MAX_IMAGES]
-    if not image_urls:
+    original_images = [img.get("src") for img in product.get("images", []) if img.get("src")]
+    if not original_images:
         return JsonResponse({"error": "Sản phẩm chưa có ảnh mockup nào."}, status=400)
+
+    # Scope the vision call to whichever photo the user actually selected as
+    # the video's source (radio button) — including AI mockups (e.g. a
+    # model holding/wearing the product) — so the written prompt matches
+    # what will really be on screen at frame 0, not a generic blend of
+    # unrelated angles.
+    selected_source_image = request.POST.get("source_image", "").strip()
+    mockup_by_url = {m.url: m for m in AiMockup.objects.filter(product_id=product_id)}
+    selected_mockup = mockup_by_url.get(selected_source_image)
+    is_model_shot = bool(selected_mockup and selected_mockup.kind == "model")
+
+    image_urls = []
+    if selected_mockup:
+        # AI mockups may be stored on local disk in dev (a relative
+        # /media/ path OpenRouter's servers can't fetch), so read the
+        # bytes ourselves and inline them as a data: URL instead of
+        # trusting the storage URL to be publicly reachable.
+        try:
+            with default_storage.open(selected_mockup.file_path, "rb") as f:
+                image_urls.append(_bytes_to_data_url(f.read(), "image/png"))
+        except OSError:
+            pass
+    elif selected_source_image:
+        image_urls.append(selected_source_image)
+    for src in original_images:
+        if src not in image_urls:
+            image_urls.append(src)
+    image_urls = image_urls[:VIDEO_PROMPT_MAX_IMAGES]
+
+    try:
+        duration = int(request.POST.get("duration", 6))
+    except ValueError:
+        duration = 6
+    duration = max(fal_video.DURATION_MIN, min(fal_video.DURATION_MAX, duration))
+    if duration <= 8:
+        pacing_note = (
+            f"The video will be exactly {duration} seconds long — that's "
+            "only enough time for ONE simple continuous motion. Do not "
+            "describe multiple beats or a sequence of events."
+        )
+    else:
+        pacing_note = (
+            f"The video will be exactly {duration} seconds long — long "
+            "enough that a single static motion would feel repetitive or "
+            "loop-y. Describe a short sequence of 2-3 distinct motion beats "
+            "in order (e.g. establish the product, then move/reveal a "
+            "detail, then a final settling shot), paced to fill the full "
+            f"{duration}s runtime without feeling static."
+        )
+
+    craft_rules = (
+        "CAMERA CRAFT — follow these rules used by professional motion "
+        "directors:\n"
+        "- One primary motion idea per prompt. Never stack unrelated moves "
+        "(rotate AND zoom AND pan at once) — image-to-video models blend "
+        "stacked motion into a blurry mess. Pick one clear camera move and "
+        "commit to it for the whole clip.\n"
+        "- The opening instant is already the strongest frame (the source "
+        "photo) — never describe a fade-in, blur-to-focus, or slow reveal "
+        "from black. Motion starts immediately, not after a build-up.\n"
+        "- Keep scale/zoom change subtle and eased: a slow push-in or "
+        "pull-back that accelerates in and decelerates out, never a snap "
+        "or crash-zoom, never linear/mechanical.\n"
+        "- Name the camera move with real cinematography terms — orbit, "
+        "turntable, dolly/push-in, pan, tilt, parallax drift — not vague "
+        "words like \"nice motion\" or \"cool effect.\"\n"
+        "- Give lighting/mood in one short clause (e.g. \"soft studio key "
+        "light\", \"warm golden-hour light\") so the render stays "
+        "consistent instead of flat or overexposed.\n\n"
+    )
+
+    framing_note = (
+        "The FIRST image below is the EXACT photo that will be used as the "
+        "video's starting frame (frame 0) — build every prompt assuming "
+        "that is what's on screen. Any additional photos are just other "
+        "angles of the same product for material/color reference only — "
+        "never describe a crop, background or detail that is only visible "
+        "in a reference photo and not in the first image.\n\n"
+        if len(image_urls) > 1 else ""
+    )
+
+    if is_model_shot:
+        style_instruction = (
+            "The first image shows a REAL PERSON naturally holding/wearing/"
+            "using the product — not a plain product-only shot. Write 4 "
+            "DISTINCT prompts for animating THIS photo, each a different "
+            "style. Because it's a photorealistic person, keep every move "
+            "small and physically plausible — exaggerated or fast motion "
+            "on a real face/body reads as broken or uncanny; never warp a "
+            "face or limb:\n"
+            "1. \"natural\" — subtle life-like motion only: a soft breath, "
+            "gentle hair or fabric sway, a slow blink or small natural "
+            "head movement; camera holds still or drifts almost "
+            "imperceptibly.\n"
+            "2. \"detail\" — camera slowly pushes in from the person "
+            "toward the product they're holding/wearing, settling close "
+            "on the print/design; the person stays nearly still "
+            "throughout.\n"
+            "3. \"turn\" — the person makes one slow, continuous, natural "
+            "turn (body or head) so the product reads from a slightly "
+            "different angle; no jerky or repeated movement.\n"
+            "4. \"dynamic\" — the most energetic of the four but still "
+            "human-plausible: one small natural gesture (e.g. adjusting "
+            "the product, a soft smile) paired with a slightly quicker "
+            "camera push-in, social-ad energy without breaking realism.\n\n"
+        )
+        style_keys = (
+            '[{"key": "natural", "label": "Chuyển động tự nhiên", "prompt": "..."}, '
+            '{"key": "detail", "label": "Cận cảnh sản phẩm", "prompt": "..."}, '
+            '{"key": "turn", "label": "Xoay người nhẹ", "prompt": "..."}, '
+            '{"key": "dynamic", "label": "Năng động, quảng cáo", "prompt": "..."}] '
+        )
+    else:
+        style_instruction = (
+            "Write 4 DISTINCT camera/motion prompts for animating this "
+            "exact product, each a different style:\n"
+            "1. \"rotate\" — a clean, professional turntable-style product "
+            "shot: either the product slowly rotates in place or the "
+            "camera orbits around it at a constant, even speed, product "
+            "centered and anchored, soft studio lighting.\n"
+            "2. \"zoom\" — a slow, eased dolly/push-in that settles close "
+            "on one specific real detail visible in the photos (texture, "
+            "print, seam, material) — subtle scale change, never a crash-"
+            "zoom.\n"
+            "3. \"lifestyle\" — the product in a natural real-world "
+            "setting implied by the product type, a gentle Ken-Burns-style "
+            "pan or drift (one direction, slow, eased), soft ambient "
+            "light.\n"
+            "4. \"dynamic\" — the fastest, punchiest camera move of the "
+            "four (a quicker push-in or a short parallax swing) for a "
+            "social-media-ad feel — still ONE motion performed with more "
+            "energy/speed, not multiple stacked moves.\n\n"
+        )
+        style_keys = (
+            '[{"key": "rotate", "label": "Xoay chuyên nghiệp", "prompt": "..."}, '
+            '{"key": "zoom", "label": "Zoom cận cảnh", "prompt": "..."}, '
+            '{"key": "lifestyle", "label": "Bối cảnh đời thường", "prompt": "..."}, '
+            '{"key": "dynamic", "label": "Năng động, quảng cáo", "prompt": "..."}] '
+        )
 
     instruction = (
         "You are a creative director for short AI-generated product promo "
-        "videos (used with image-to-video models like Kling/Seedance). "
-        f"You are shown {len(image_urls)} mockup photo(s) of the SAME "
-        "product (possibly different angles/colors). Study the product's "
-        "actual shape, material, color, and printed design in the images.\n\n"
-        "Write 4 DISTINCT camera/motion prompts for animating this exact "
-        "product, each a different style:\n"
-        "1. \"rotate\" — a clean, professional turntable-style product shot "
-        "(camera orbits or product slowly rotates), studio lighting.\n"
-        "2. \"zoom\" — a dramatic slow zoom/dolly-in that highlights a "
-        "specific real detail of the product visible in the photos.\n"
-        "3. \"lifestyle\" — the product placed in a natural real-world "
-        "setting/context implied by the product type, camera pans gently.\n"
-        "4. \"dynamic\" — energetic camera motion (e.g. quick push-in, "
-        "parallax) for a punchy social-media ad feel.\n\n"
-        "Each prompt must be 1-2 sentences, in English, describing ONLY "
-        "camera/lighting/environment motion — never invent new colors, text, "
-        "logos or shapes that contradict what is actually in the photos.\n\n"
-        "Respond with ONLY a JSON array, no markdown fences, no extra text, "
-        "in this exact shape: "
-        '[{"key": "rotate", "label": "Xoay chuyên nghiệp", "prompt": "..."}, '
-        '{"key": "zoom", "label": "Zoom cận cảnh", "prompt": "..."}, '
-        '{"key": "lifestyle", "label": "Bối cảnh đời thường", "prompt": "..."}, '
-        '{"key": "dynamic", "label": "Năng động, quảng cáo", "prompt": "..."}] '
+        "videos (used with image-to-video models like Kling/Seedance/LTX). "
+        f"You are shown {len(image_urls)} photo(s) related to the SAME "
+        "product. Study the product's actual shape, material, color, and "
+        "printed design in the images.\n\n"
+        f"{framing_note}"
+        f"{pacing_note}\n\n"
+        f"{craft_rules}"
+        f"{style_instruction}"
+        "Each prompt must be in English, 1-2 sentences, describing ONLY "
+        "camera/lighting/motion, correctly paced for the exact duration "
+        "stated above — never invent new colors, text, logos or shapes "
+        "that contradict what is actually in the photos.\n\n"
+        "Respond with ONLY a JSON array, no markdown fences, no extra "
+        "text, no pretty-printing — a single compact line with no line "
+        f"breaks or indentation, in this exact shape: {style_keys}"
         "— \"label\" must be the Vietnamese labels given above, \"prompt\" in English."
     )
 
     try:
-        raw = openrouter_client.vision_chat_multi(image_urls, instruction, max_tokens=700)
+        raw = openrouter_client.vision_chat_multi(image_urls, instruction, max_tokens=2000)
     except Exception as exc:
         return JsonResponse({"error": str(exc)}, status=502)
 
@@ -1111,7 +1282,7 @@ def publish_product(request, product_id):
         return redirect("product_detail", product_id=product_id)
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     next_url = _safe_next(request, request.POST.get("next"))
-    shop_id = pc.default_shop_id()
+    shop_id = _current_shop_id(request)
     try:
         pc.publish_product(product_id, shop_id)
         if is_ajax:
@@ -1129,7 +1300,7 @@ def delete_product(request, product_id):
         return redirect("product_detail", product_id=product_id)
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     next_url = _safe_next(request, request.POST.get("next"))
-    shop_id = pc.default_shop_id()
+    shop_id = _current_shop_id(request)
     try:
         pc.delete_product(product_id, shop_id)
         if is_ajax:

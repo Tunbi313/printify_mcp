@@ -439,6 +439,28 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "style — mountains, compass, botanical sprigs, "
                         "moon/stars, tent/campfire.",
     },
+    # Sunset Surf Beach Towel — provider 99, blueprint 352. metalsignhub
+    # store (shop_id 28544934 — different account, pass shop_id explicitly
+    # when calling create_from_template for this one). Dye-sublimation,
+    # single "front" placeholder. Margins: 30x60 ~40%, 36x72 ~40%.
+    "beach_towel": {
+        "blueprint_id": 352,
+        "print_provider_id": 99,
+        "variants": [
+            {"id": 44444, "label": "30x60", "price": 3882},
+            {"id": 44445, "label": "36x72", "price": 4965},
+        ],
+        "placeholder": {"x": 0.5, "y": 0.5, "scale": 1.0,
+                         "angle": 0, "flipX": False, "flipY": False},
+        "decoration_method": "dye-sublimation",
+        "artwork_spec": "18900x9900 px (30x60) or 22200x11400 px (36x72), "
+                        "300dpi, ratio ~1.95:1 wide landscape, full-bleed, "
+                        "keep key elements within ~85% safe zone. Vibrant "
+                        "coastal/beach sunset style — metalsignhub. NOTE: "
+                        "ChatGPT/DALL-E output (~1500-1800px) must be "
+                        "upscaled significantly before upload — plan for "
+                        "an upscale step (see upscale_image tool).",
+    },
     
 
 }

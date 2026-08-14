@@ -856,4 +856,74 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             "adventure", "gift", "fake tattoo", "nature lover",
         ],
     },
+    "beach_towel": {
+        "label": "Beach Towel (dye-sub)",
+        "blueprint_id": 352,
+        "print_provider_id": 99,
+        "variants": [
+            {"id": 44444, "label": "30x60", "price": 3882},
+            {"id": 44445, "label": "36x72", "price": 4965},
+        ],
+        "placeholder": {"x": 0.5, "y": 0.5, "scale": 1.0,
+                         "angle": 0, "flipX": False, "flipY": False},
+        "decoration_method": "dye-sublimation",
+        "artwork_spec": "18900x9900 px (30x60) or 22200x11400 px (36x72), "
+                        "300dpi, ratio ~1.95:1 wide landscape, full-bleed, "
+                        "keep key elements within ~85% safe zone. Vibrant "
+                        "coastal/beach sunset style — metalsignhub. NOTE: "
+                        "ChatGPT/DALL-E output (~1500-1800px) must be "
+                        "upscaled significantly before upload — plan for "
+                        "an upscale step (see upscale_image tool).",
+        "target_width": 22200,
+        "target_height": 11400,
+        "sample_prompt": "Vibrant coastal beach sunset scene, [chủ đề bãi "
+                          "biển/hoàng hôn], warm saturated palette (coral, "
+                          "gold, turquoise), wide horizontal landscape "
+                          "composition, full-bleed edge-to-edge, no text, "
+                          "no logos.",
+        "default_description": (
+            "<p><strong>About</strong></p>"
+            "<ul>"
+            "<li>Material: 52% Polyester and 48% Cotton (SPOKE and Printify "
+            "Choice US), 50% Cotton and 50% Polyester (Printify Choice EU)</li>"
+            "<li>Two sizes available: 30&quot; x 60&quot; and 36&quot; x 72&quot;</li>"
+            "<li>White cotton loop backing</li>"
+            "<li>One-sided print</li>"
+            "</ul>"
+            "<p>Beach days are always a bliss — showing up with a "
+            "luxuriously soft and customized beach towel can add a bit "
+            "more sunshine to your day. This heavyweight towel feels extra "
+            "lush to the touch, featuring a polyester facing where your "
+            "print goes in vivid detail, and a cotton loop backing for "
+            "durability.</p>"
+            "<p>Please note: due to the thickness of the towel, print "
+            "colors may not soak all the way through the fabric, and a "
+            "white backing can appear when the towel fibers are stroked.</p>"
+            "<p><strong>Key features</strong></p>"
+            "<ul>"
+            "<li>Polyester print side — strong, durable, retains shape and "
+            "dries quickly</li>"
+            "<li>Cotton loop backing — long, fine combed-cotton fibres for "
+            "a soft, durable towel</li>"
+            "<li>Hemmed edges — folded and sewn for durability</li>"
+            "<li>Moisture-absorbent material</li>"
+            "<li>Blank product sourced from China</li>"
+            "<li>For adults</li>"
+            "</ul>"
+            "<p><strong>Care instructions</strong></p>"
+            "<p>Cold machine wash only, with similar colors, gentle cycle. "
+            "Tumble dry on low or hang dry. Do not bleach or dry clean.</p>"
+            "<p><strong>Size guide</strong></p>"
+            "<table><tbody>"
+            "<tr><th></th><th>30x60</th><th>36x72</th></tr>"
+            "<tr><td>Length</td><td>30 in</td><td>36 in</td></tr>"
+            "<tr><td>Height</td><td>60 in</td><td>72 in</td></tr>"
+            "</tbody></table>"
+        ),
+        "default_tags": [
+            "beach towel", "pool towel", "summer", "vacation",
+            "beach vacation", "custom towel", "gift", "coastal decor",
+            "sunset", "vibrant print", "oversized towel",
+        ],
+    },
 }

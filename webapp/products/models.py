@@ -21,7 +21,11 @@ class AiMockup(models.Model):
 
 
 class AiVideo(models.Model):
-    MODEL_CHOICES = [("kling", "Kling 2.5 Turbo Pro"), ("seedance", "Seedance 2.5")]
+    MODEL_CHOICES = [
+        ("kling", "Kling 2.5 Turbo Pro"),
+        ("seedance", "Seedance 2.5"),
+        ("ltx", "LTX Video 2.0 Fast"),
+    ]
 
     product_id = models.CharField(max_length=64, db_index=True)
     product_title = models.CharField(max_length=255, blank=True)

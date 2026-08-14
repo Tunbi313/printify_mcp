@@ -19,22 +19,24 @@
   <form method="post" action="{% url 'video_studio' product.id %}" id="video-form">
     {% csrf_token %}
 
-    <label>Ảnh mockup gốc</label>
+    <label>Ảnh nguồn cho video (ảnh gốc hoặc ảnh AI đã tạo ở Mockup Studio)</label>
     <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:10px; margin-bottom:8px;">
-      {% for src in source_images %}
-        <label style="font-weight:400; margin:0; cursor:pointer;">
-          <input type="radio" name="source_image" value="{{ src }}"
-                 {% if src == selected_source_image %}checked{% elif not selected_source_image and forloop.first %}checked{% endif %}
+      {% for c in image_choices %}
+        <label style="font-weight:400; margin:0; cursor:pointer; position:relative; display:block;">
+          <input type="radio" name="source_image" value="{{ c.src }}"
+                 {% if c.src == selected_source_image %}checked{% elif not selected_source_image and forloop.first %}checked{% endif %}
                  style="width:auto; margin-bottom:4px;">
-          <img src="{{ src }}" alt="mockup gốc" class="zoomable-mockup" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid var(--border); display:block; cursor:zoom-in;">
+          <img src="{{ c.src }}" alt="{{ c.tag }}" class="zoomable-mockup" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid var(--border); display:block; cursor:zoom-in;">
+          <span style="position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.65); color:#fff; font-size:0.65rem; padding:2px 6px; border-radius:4px; pointer-events:none;">{{ c.tag }}</span>
         </label>
       {% endfor %}
     </div>
 
     <label for="model">Model AI</label>
     <select name="model" id="model">
-      <option value="kling" {% if selected_model != "seedance" %}selected{% endif %}>Kling 2.5 Turbo Pro (rẻ, không âm thanh)</option>
-      <option value="seedance" {% if selected_model == "seedance" %}selected{% endif %}>Seedance 2.5 (đắt hơn, có âm thanh tự sinh, mới hơn)</option>
+      <option value="kling" {% if selected_model == "kling" or not selected_model %}selected{% endif %}>Kling 2.5 Turbo Pro ($0.07/s, tối đa 10s, không âm thanh)</option>
+      <option value="ltx" {% if selected_model == "ltx" %}selected{% endif %}>LTX Video 2.0 Fast ($0.04/s — rẻ nhất, 6-20s, có âm thanh, chỉ ngang 16:9)</option>
+      <option value="seedance" {% if selected_model == "seedance" %}selected{% endif %}>Seedance 2.5 ($0.22-0.47/s — đắt nhất, có âm thanh, tối đa 20s)</option>
     </select>
 
     <label for="prompt">Mô tả chuyển động (tiếng Anh, AI hiểu tốt hơn)</label>
@@ -43,12 +45,10 @@
     <p class="tpl-meta" id="ai-prompt-status"></p>
     <div id="ai-prompt-styles" style="display:none; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; margin-top:8px;"></div>
 
-    <label for="duration">Thời lượng</label>
-    <select name="duration" id="duration">
-      {% for d in durations %}
-        <option value="{{ d }}" {% if d == selected_duration %}selected{% endif %}>{{ d }} giây</option>
-      {% endfor %}
-    </select>
+    <label for="duration">Thời lượng (giây)</label>
+    <input type="number" name="duration" id="duration" min="{{ duration_min }}" max="{{ duration_max }}"
+           value="{{ selected_duration }}" style="max-width:140px;">
+    <p class="tpl-meta" id="duration-hint"></p>
 
     <div id="resolution-wrap">
       <label for="resolution">Độ phân giải (chỉ áp dụng cho Seedance)</label>
@@ -67,11 +67,12 @@
         </option>
       {% endfor %}
     </select>
+    <p class="tpl-meta" id="aspect-ratio-hint"></p>
 
     <div id="audio-wrap">
       <label style="display:flex; align-items:center; gap:8px; font-weight:600;">
         <input type="checkbox" name="generate_audio" id="generate_audio" style="width:auto;" {% if generate_audio %}checked{% endif %}>
-        Tự sinh âm thanh (chỉ áp dụng cho Seedance)
+        Tự sinh âm thanh (chỉ áp dụng cho Seedance — LTX luôn tự có âm thanh, Kling không hỗ trợ)
       </label>
     </div>
 
@@ -118,20 +119,39 @@
 
 <script>
   const modelSelect = document.getElementById('model');
-  const durationSelect = document.getElementById('duration');
+  const durationInput = document.getElementById('duration');
+  const durationHint = document.getElementById('duration-hint');
   const resolutionSelect = document.getElementById('resolution');
   const resolutionWrap = document.getElementById('resolution-wrap');
   const audioWrap = document.getElementById('audio-wrap');
+  const aspectRatioSelect = document.getElementById('aspect_ratio');
+  const aspectRatioHint = document.getElementById('aspect-ratio-hint');
   const costEstimate = document.getElementById('cost-estimate');
 
-  const RATES = { kling: 0.07, seedance_720p: 0.473, seedance_480p: 0.2205 };
+  const RATES = { kling: 0.07, seedance_720p: 0.473, seedance_480p: 0.2205, ltx: 0.04 };
+  const DURATION_MIN = {{ duration_min }};
+  const DURATION_MAX = {{ duration_max }};
+
+  // Mirrors fal_video.clamp_duration() server-side — each model has a real
+  // floor the API enforces; this keeps the shown estimate honest.
+  function clampDuration(model, raw) {
+    let seconds = parseInt(raw, 10);
+    if (isNaN(seconds)) seconds = DURATION_MIN;
+    seconds = Math.max(DURATION_MIN, Math.min(DURATION_MAX, seconds));
+    if (model === 'kling') return seconds <= 7 ? 5 : 10;
+    if (model === 'seedance') return Math.max(4, seconds);
+    if (model === 'ltx') return Math.max(6, seconds);
+    return seconds;
+  }
 
   function computeCost() {
     const model = modelSelect.value;
-    const duration = parseInt(durationSelect.value, 10) || 5;
+    const duration = clampDuration(model, durationInput.value);
     let rate;
     if (model === 'seedance') {
       rate = resolutionSelect.value === '480p' ? RATES.seedance_480p : RATES.seedance_720p;
+    } else if (model === 'ltx') {
+      rate = RATES.ltx;
     } else {
       rate = RATES.kling;
     }
@@ -139,13 +159,32 @@
   }
 
   function syncModelUI() {
-    const isSeedance = modelSelect.value === 'seedance';
+    const model = modelSelect.value;
+    const isSeedance = model === 'seedance';
+    const isLtx = model === 'ltx';
     resolutionWrap.style.opacity = isSeedance ? '1' : '0.5';
     audioWrap.style.opacity = isSeedance ? '1' : '0.5';
+
+    const shown = clampDuration(model, durationInput.value);
+    if (String(shown) !== String(parseInt(durationInput.value, 10))) {
+      durationHint.textContent = `${model === 'kling' ? 'Kling' : model === 'ltx' ? 'LTX' : 'Seedance'} sẽ dùng ${shown}s (làm tròn theo giới hạn model này).`;
+    } else {
+      durationHint.textContent = '';
+    }
+
+    aspectRatioSelect.disabled = isLtx;
+    if (isLtx) {
+      aspectRatioSelect.value = '16:9';
+      aspectRatioHint.textContent = 'LTX chỉ hỗ trợ khung ngang 16:9.';
+    } else {
+      aspectRatioHint.textContent = '';
+    }
+
     costEstimate.textContent = '$' + computeCost();
   }
 
-  [modelSelect, durationSelect, resolutionSelect].forEach((el) => {
+  [modelSelect, durationInput, resolutionSelect].forEach((el) => {
+    el.addEventListener('input', syncModelUI);
     el.addEventListener('change', syncModelUI);
   });
   syncModelUI();
@@ -181,12 +220,15 @@
       aiPromptStyles.innerHTML = '';
 
       try {
+        const promptFormData = new FormData();
+        promptFormData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+        promptFormData.append('duration', document.getElementById('duration').value);
+        const checkedSource = document.querySelector('input[name="source_image"]:checked');
+        if (checkedSource) promptFormData.append('source_image', checkedSource.value);
         const res = await fetch("{% url 'video_generate_prompts' product.id %}", {
           method: 'POST',
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
-          },
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+          body: promptFormData,
         });
         const data = await res.json();
         if (data.error) {
@@ -202,7 +244,7 @@
             card.addEventListener('click', () => {
               promptTextarea.value = s.prompt;
               document.querySelectorAll('#ai-prompt-styles .card').forEach((c) => c.style.borderColor = '');
-              card.style.borderColor = '#2563eb';
+              card.style.borderColor = 'var(--pine)';
             });
             aiPromptStyles.appendChild(card);
           });

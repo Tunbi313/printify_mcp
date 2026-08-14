@@ -10,7 +10,7 @@ import os
 import httpx
 
 API_BASE = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "openai/gpt-4o-mini"
+DEFAULT_MODEL = "google/gemini-2.5-pro"
 
 
 def _check_key() -> None:
@@ -42,7 +42,8 @@ def vision_chat(image_data_url: str, prompt: str, max_tokens: int = 200) -> str:
     }
     with httpx.Client(timeout=90) as client:
         r = client.post(f"{API_BASE}/chat/completions", headers=headers, json=payload)
-        r.raise_for_status()
+        if r.is_error:
+            raise RuntimeError(f"OpenRouter {r.status_code}: {r.text[:500]}")
         data = r.json()
         return data["choices"][0]["message"]["content"].strip()
 
@@ -67,6 +68,7 @@ def vision_chat_multi(image_urls: list[str], prompt: str, max_tokens: int = 200)
     }
     with httpx.Client(timeout=90) as client:
         r = client.post(f"{API_BASE}/chat/completions", headers=headers, json=payload)
-        r.raise_for_status()
+        if r.is_error:
+            raise RuntimeError(f"OpenRouter {r.status_code}: {r.text[:500]}")
         data = r.json()
         return data["choices"][0]["message"]["content"].strip()
