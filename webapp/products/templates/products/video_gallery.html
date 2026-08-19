@@ -8,7 +8,7 @@
   <h2>Thư viện video AI</h2>
   <p class="tpl-meta">
     Tất cả video AI đã tạo, mới nhất trước. Tải về hoặc xóa ngay tại đây.
-    <a href="{% url 'video_studio_index' %}">+ Tạo video mới</a>
+    <a href="{% url 'video_ai_studio' %}">+ Tạo video mới</a>
   </p>
 
   <div id="empty-msg" class="tpl-meta" style="{% if videos %}display:none;{% endif %}">Chưa tạo video AI nào.</div>
@@ -18,11 +18,16 @@
     <div class="card" style="padding:10px; margin-bottom:0;" data-video-card>
       <video src="{{ v.url }}" controls style="width:100%; border-radius:6px; border:1px solid var(--border); display:block; background:#000;"></video>
       <p style="font-size:0.8rem; font-weight:600; margin:8px 0 2px;">
-        <a href="{% url 'product_detail' v.product_id %}" style="text-decoration:none;">{{ v.product_title|default:"(sản phẩm đã xóa)" }}</a>
+        {% if v.product_id %}
+          <a href="{% url 'product_detail' v.product_id %}" style="text-decoration:none;">{{ v.product_title|default:"(sản phẩm đã xóa)" }}</a>
+        {% else %}
+          <span>📤 Ảnh upload trực tiếp</span>
+        {% endif %}
       </p>
       <p class="tpl-meta" style="margin:0 0 8px;">
         <span class="badge">{{ v.get_model_display }}</span>
         · {{ v.duration }}s · {{ v.aspect_ratio }} · ~${{ v.cost_usd }}
+        {% if v.duration_tier %}· {{ v.get_duration_tier_display }}{% endif %}
       </p>
       <div style="display:flex; gap:6px;">
         <a href="{{ v.url }}" download style="flex:1;"><button type="button" class="btn-secondary" style="width:100%; padding:6px; font-size:0.8rem;">Tải về</button></a>

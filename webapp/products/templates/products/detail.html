@@ -25,7 +25,7 @@
     </div>
     {% if is_published %}
       <a href="{% url 'mockup_studio' product.id %}"><button type="button" class="btn-ai">Tạo mockup AI</button></a>
-      <a href="{% url 'video_studio' product.id %}"><button type="button" class="btn-ai">Tạo video AI</button></a>
+      <a href="{% url 'video_ai_pick_product_images' product.id %}"><button type="button" class="btn-ai">Tạo video AI</button></a>
     {% else %}
       <p class="tpl-meta">Publish sản phẩm này lên store để dùng Mockup Studio / Video AI.</p>
     {% endif %}

@@ -1,0 +1,337 @@
+{% extends "products/base.html" %}
+{% block title %}Video AI{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Video AI — tạo video quảng cáo</h2>
+  <p class="tpl-meta">
+    Upload 1 ảnh (sản phẩm, người mẫu, bất kỳ ảnh nào) — AI sẽ animate
+    thành video ngắn. Chọn đúng mục đích dùng bên dưới để có thời lượng và
+    model phù hợp. Video AI <strong>tốn phí đáng kể</strong> — kiểm tra giá
+    ước tính trước khi bấm tạo.
+  </p>
+  <p class="tpl-meta"><a href="{% url 'video_gallery' %}">🎬 Xem tất cả video đã tạo →</a></p>
+
+  <form method="post" action="{% url 'video_ai_studio' %}" id="video-form" enctype="multipart/form-data">
+    {% csrf_token %}
+    <input type="hidden" name="product_id" id="product_id" value="{{ picked_product_id }}">
+    <input type="hidden" name="product_title" id="product_title" value="{{ picked_product_title }}">
+    <input type="hidden" name="source_image" id="source_image" value="{{ selected_source_image }}">
+
+    <label>Ảnh nguồn</label>
+    <div id="image-preview-wrap" style="border:1px dashed var(--border); border-radius:8px; padding:14px; text-align:center; {% if not selected_source_image %}display:none;{% endif %}">
+      <img id="image-preview" src="{{ selected_source_image }}" alt="Ảnh đã chọn" style="max-width:220px; max-height:220px; border-radius:6px; display:block; margin:0 auto 8px;">
+      <button type="button" class="btn-secondary" id="clear-image-btn" style="font-size:0.8rem; padding:6px 12px;">Đổi ảnh khác</button>
+    </div>
+    <div id="upload-wrap" style="{% if selected_source_image %}display:none;{% endif %}">
+      <input type="file" name="image_upload" id="image_upload" accept="image/*">
+      <p class="tpl-meta">Upload trực tiếp 1 ảnh, hoặc <a href="{% url 'video_ai_pick_products' %}">chọn ảnh có sẵn từ 1 sản phẩm →</a></p>
+    </div>
+
+    <label>Mục đích video</label>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin:4px 0 8px;">
+      {% for key, tier in duration_tiers.items %}
+        <label style="font-weight:400; margin:0; cursor:pointer; border:1px solid var(--border); border-radius:8px; padding:10px; display:block;" class="tier-option">
+          <input type="radio" name="duration_tier" value="{{ key }}" data-seconds="{{ tier.seconds }}" data-model="{{ tier.recommended_model }}"
+                 {% if key == selected_duration_tier or not selected_duration_tier and key == "product_page" %}checked{% endif %}
+                 style="width:auto;">
+          <strong>{{ tier.label }}</strong>
+          <p class="tpl-meta" style="margin:2px 0 0;">{{ tier.desc }}</p>
+        </label>
+      {% endfor %}
+    </div>
+
+    <label for="model">Model AI</label>
+    <select name="model" id="model">
+      <option value="kling" {% if selected_model == "kling" or not selected_model %}selected{% endif %}>Kling O3 Pro ($0.112/s, tối đa 15s, cinematic)</option>
+      <option value="seedance" {% if selected_model == "seedance" %}selected{% endif %}>Seedance 2.5 ($0.22-0.71/s, tối đa 30s, giữ nhất quán tốt cho video dài)</option>
+      <option value="ltx" {% if selected_model == "ltx" %}selected{% endif %}>LTX Video 2.0 Fast ($0.04/s — rẻ nhất, 6-20s, có âm thanh)</option>
+    </select>
+
+    <label for="prompt_model">Model AI viết prompt</label>
+    <select name="prompt_model" id="prompt_model">
+      {% for value, label in prompt_model_choices %}
+        <option value="{{ value }}" {% if value == selected_prompt_model %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    <label for="prompt">Mô tả chuyển động (tiếng Anh, AI hiểu tốt hơn)</label>
+    <textarea name="prompt" id="prompt">{{ prompt|default:default_prompt }}</textarea>
+    <button type="button" class="btn-ai" id="ai-prompt-btn" style="margin-top:6px;">✨ AI sinh prompt từ ảnh</button>
+    <p class="tpl-meta" id="ai-prompt-status"></p>
+    <div id="ai-prompt-styles" style="display:none; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; margin-top:8px;"></div>
+
+    <label for="duration">Thời lượng (giây)</label>
+    <input type="number" name="duration" id="duration" min="{{ duration_min }}" max="{{ duration_max }}"
+           value="{{ selected_duration }}" style="max-width:140px;">
+    <p class="tpl-meta" id="duration-hint"></p>
+
+    <div id="resolution-wrap">
+      <label for="resolution">Độ phân giải (chỉ áp dụng cho Seedance)</label>
+      <select name="resolution" id="resolution">
+        {% for r in resolutions %}
+          <option value="{{ r }}" {% if r == selected_resolution %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <label for="aspect_ratio">Tỉ lệ khung hình (chỉ áp dụng cho Seedance)</label>
+    <select name="aspect_ratio" id="aspect_ratio">
+      {% for a in aspect_ratios %}
+        <option value="{{ a }}" {% if a == selected_aspect_ratio %}selected{% endif %}>
+          {{ a }}{% if a == "9:16" %} (TikTok/Reels/Story){% elif a == "1:1" %} (Instagram feed){% elif a == "16:9" %} (YouTube/web){% endif %}
+        </option>
+      {% endfor %}
+    </select>
+    <p class="tpl-meta" id="aspect-ratio-hint"></p>
+
+    <div id="audio-wrap">
+      <label style="display:flex; align-items:center; gap:8px; font-weight:600;">
+        <input type="checkbox" name="generate_audio" id="generate_audio" style="width:auto;" {% if generate_audio %}checked{% endif %}>
+        Tự sinh âm thanh (Kling: +$0.028/s; LTX luôn có sẵn, không tính riêng)
+      </label>
+    </div>
+
+    <p class="tpl-meta" style="margin-top:14px; font-weight:600;">Chi phí ước tính: <span id="cost-estimate">$0.56</span></p>
+
+    <button type="submit" class="btn-ai" id="video-submit-btn">Tạo video</button>
+  </form>
+</div>
+
+{% if result_video %}
+<div class="card">
+  <h3>Kết quả — {{ result_video.get_model_display }}</h3>
+  <p class="tpl-meta">Chi phí thực tế: ~${{ result_video.cost_usd }}</p>
+  <video src="{{ result_video.url }}" controls style="width:100%; max-width:480px; border-radius:8px; border:1px solid var(--border); display:block;"></video>
+  <div style="margin-top:10px;">
+    <a href="{{ result_video.url }}" download><button type="button" class="btn-secondary">Tải về</button></a>
+  </div>
+</div>
+{% endif %}
+
+<script>
+  // --- Image source: upload vs picked-from-product ---
+  const imageUpload = document.getElementById('image_upload');
+  const uploadWrap = document.getElementById('upload-wrap');
+  const previewWrap = document.getElementById('image-preview-wrap');
+  const previewImg = document.getElementById('image-preview');
+  const sourceImageInput = document.getElementById('source_image');
+  const clearImageBtn = document.getElementById('clear-image-btn');
+
+  if (imageUpload) {
+    imageUpload.addEventListener('change', async () => {
+      const file = imageUpload.files[0];
+      if (!file) return;
+      previewImg.src = URL.createObjectURL(file);
+      previewWrap.style.display = '';
+      uploadWrap.style.display = 'none';
+
+      // Host the image right away so "AI sinh prompt" has a real URL to
+      // show the vision model before the main form is even submitted.
+      sourceImageInput.value = '';
+      const uploadData = new FormData();
+      uploadData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+      uploadData.append('image', file);
+      try {
+        const res = await fetch("{% url 'video_ai_upload_image' %}", {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+          body: uploadData,
+        });
+        const data = await res.json();
+        if (data.url) {
+          sourceImageInput.value = data.url;
+          imageUpload.value = '';  // avoid re-uploading the same file again on submit
+        } else {
+          alert('Lỗi upload ảnh: ' + (data.error || 'không rõ nguyên nhân'));
+        }
+      } catch (err) {
+        alert('Lỗi kết nối khi upload ảnh: ' + err);
+      }
+    });
+  }
+  if (clearImageBtn) {
+    clearImageBtn.addEventListener('click', () => {
+      previewWrap.style.display = 'none';
+      uploadWrap.style.display = '';
+      sourceImageInput.value = '';
+      if (imageUpload) imageUpload.value = '';
+      document.getElementById('product_id').value = '';
+      document.getElementById('product_title').value = '';
+    });
+  }
+
+  // --- Duration tier -> default seconds + recommended model ---
+  const tierRadios = document.querySelectorAll('input[name="duration_tier"]');
+  const durationInput = document.getElementById('duration');
+  const modelSelect = document.getElementById('model');
+  let userTouchedDuration = false;
+  let userTouchedModel = false;
+  durationInput.addEventListener('input', () => { userTouchedDuration = true; });
+  modelSelect.addEventListener('change', () => { userTouchedModel = true; });
+
+  function applyTier(radio) {
+    if (!userTouchedDuration) durationInput.value = radio.dataset.seconds;
+    if (!userTouchedModel) modelSelect.value = radio.dataset.model;
+    syncModelUI();
+  }
+  tierRadios.forEach((r) => r.addEventListener('change', () => { applyTier(r); }));
+
+  // --- Cost estimate + model-specific field visibility ---
+  const durationHint = document.getElementById('duration-hint');
+  const resolutionSelect = document.getElementById('resolution');
+  const resolutionWrap = document.getElementById('resolution-wrap');
+  const audioWrap = document.getElementById('audio-wrap');
+  const generateAudio = document.getElementById('generate_audio');
+  const aspectRatioSelect = document.getElementById('aspect_ratio');
+  const aspectRatioHint = document.getElementById('aspect-ratio-hint');
+  const costEstimate = document.getElementById('cost-estimate');
+
+  const RATES = {
+    kling_audio_off: 0.112, kling_audio_on: 0.14,
+    seedance_1080p: 0.71, seedance_720p: 0.473, seedance_480p: 0.2205,
+    ltx: 0.04,
+  };
+  const KLING_DURATIONS = [3,4,5,6,7,8,9,10,11,12,13,14,15];
+  const DURATION_MIN = {{ duration_min }};
+  const DURATION_MAX = {{ duration_max }};
+
+  // Mirrors fal_video.clamp_duration() server-side.
+  function clampDuration(model, raw) {
+    let seconds = parseInt(raw, 10);
+    if (isNaN(seconds)) seconds = DURATION_MIN;
+    if (model === 'kling') {
+      seconds = Math.max(KLING_DURATIONS[0], Math.min(seconds, KLING_DURATIONS[KLING_DURATIONS.length - 1]));
+      return KLING_DURATIONS.reduce((a, b) => Math.abs(b - seconds) < Math.abs(a - seconds) ? b : a);
+    }
+    if (model === 'seedance') return Math.max(4, Math.min(seconds, 30));
+    if (model === 'ltx') return Math.max(6, Math.min(seconds, 20));
+    return Math.max(DURATION_MIN, Math.min(seconds, DURATION_MAX));
+  }
+
+  function computeCost() {
+    const model = modelSelect.value;
+    const duration = clampDuration(model, durationInput.value);
+    let rate;
+    if (model === 'seedance') {
+      rate = RATES['seedance_' + resolutionSelect.value] || RATES.seedance_720p;
+    } else if (model === 'ltx') {
+      rate = RATES.ltx;
+    } else {
+      rate = generateAudio.checked ? RATES.kling_audio_on : RATES.kling_audio_off;
+    }
+    return (rate * duration).toFixed(2);
+  }
+
+  function syncModelUI() {
+    const model = modelSelect.value;
+    const isSeedance = model === 'seedance';
+    const isLtx = model === 'ltx';
+    resolutionWrap.style.opacity = isSeedance ? '1' : '0.5';
+    audioWrap.style.opacity = isLtx ? '0.5' : '1';
+
+    const shown = clampDuration(model, durationInput.value);
+    if (String(shown) !== String(parseInt(durationInput.value, 10))) {
+      durationHint.textContent = `${model === 'kling' ? 'Kling' : model === 'ltx' ? 'LTX' : 'Seedance'} sẽ dùng ${shown}s (làm tròn theo giới hạn model này).`;
+    } else {
+      durationHint.textContent = '';
+    }
+
+    aspectRatioSelect.disabled = !isSeedance;
+    if (!isSeedance) {
+      aspectRatioHint.textContent = model === 'ltx' ? 'LTX chỉ hỗ trợ khung ngang 16:9.' : 'Kling giữ khung hình theo ảnh gốc.';
+    } else {
+      aspectRatioHint.textContent = '';
+    }
+
+    costEstimate.textContent = '$' + computeCost();
+  }
+
+  [modelSelect, durationInput, resolutionSelect, generateAudio].forEach((el) => {
+    el.addEventListener('input', syncModelUI);
+    el.addEventListener('change', syncModelUI);
+  });
+  syncModelUI();
+
+  const form = document.getElementById('video-form');
+  const submitBtn = document.getElementById('video-submit-btn');
+  if (form) {
+    let submitting = false;
+    form.addEventListener('submit', (e) => {
+      if (submitting) { e.preventDefault(); return; }
+      if (!imageUpload.files[0] && !sourceImageInput.value) {
+        alert('Bạn chưa upload ảnh hoặc chọn ảnh nguồn.');
+        e.preventDefault();
+        return;
+      }
+      if (!confirm('Chi phí ước tính ~$' + computeCost() + ' cho video này. Tiếp tục tạo?')) {
+        e.preventDefault();
+        return;
+      }
+      submitting = true;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Đang tạo video... có thể mất 1-3 phút, vui lòng đợi';
+    });
+  }
+</script>
+
+<script>
+  const aiPromptBtn = document.getElementById('ai-prompt-btn');
+  const aiPromptStatus = document.getElementById('ai-prompt-status');
+  const aiPromptStyles = document.getElementById('ai-prompt-styles');
+  const promptTextarea = document.getElementById('prompt');
+
+  if (aiPromptBtn) {
+    aiPromptBtn.addEventListener('click', async () => {
+      if (!sourceImageInput.value) {
+        aiPromptStatus.textContent = 'Bạn cần upload ảnh hoặc chọn ảnh nguồn trước.';
+        return;
+      }
+      aiPromptBtn.disabled = true;
+      aiPromptStatus.textContent = 'AI đang xem ảnh và viết prompt... vài giây';
+      aiPromptStyles.style.display = 'none';
+      aiPromptStyles.innerHTML = '';
+
+      try {
+        const promptFormData = new FormData();
+        promptFormData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+        promptFormData.append('source_image', sourceImageInput.value);
+        promptFormData.append('product_id', document.getElementById('product_id').value);
+        promptFormData.append('duration', durationInput.value);
+        promptFormData.append('model', modelSelect.value);
+        promptFormData.append('prompt_model', document.getElementById('prompt_model').value);
+        const res = await fetch("{% url 'video_generate_prompts' %}", {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+          body: promptFormData,
+        });
+        const data = await res.json();
+        if (data.error) {
+          aiPromptStatus.textContent = 'Lỗi: ' + data.error;
+        } else {
+          aiPromptStatus.textContent = 'Chọn 1 phong cách bên dưới để điền vào ô mô tả:';
+          data.styles.forEach((s) => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.style.cssText = 'padding:10px; margin-bottom:0; cursor:pointer;';
+            card.innerHTML = `<p style="font-weight:600; margin:0 0 4px; font-size:0.85rem;">${s.label}</p>
+                               <p style="margin:0; font-size:0.8rem; color:var(--ink-muted);">${s.prompt}</p>`;
+            card.addEventListener('click', () => {
+              promptTextarea.value = s.prompt;
+              document.querySelectorAll('#ai-prompt-styles .card').forEach((c) => c.style.borderColor = '');
+              card.style.borderColor = 'var(--pine)';
+            });
+            aiPromptStyles.appendChild(card);
+          });
+          aiPromptStyles.style.display = 'grid';
+        }
+      } catch (err) {
+        aiPromptStatus.textContent = 'Lỗi kết nối: ' + err;
+      } finally {
+        aiPromptBtn.disabled = false;
+      }
+    });
+  }
+</script>
+
+{% endblock %}

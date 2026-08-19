@@ -75,13 +75,26 @@ class CrawledProduct(models.Model):
 
 class AiVideo(models.Model):
     MODEL_CHOICES = [
-        ("kling", "Kling 2.5 Turbo Pro"),
+        ("kling", "Kling O3 Pro"),
         ("seedance", "Seedance 2.5"),
         ("ltx", "LTX Video 2.0 Fast"),
     ]
+    TIER_CHOICES = [
+        ("product_page", "Product Page (5s)"),
+        ("homepage", "Homepage (10s)"),
+        ("real_ad", "Real Ad (15s)"),
+        ("story_ad", "Story Ad (15-20s+)"),
+        ("custom", "Tùy chỉnh"),
+    ]
 
-    product_id = models.CharField(max_length=64, db_index=True)
+    # product_id/product_title are set only when the source image came from
+    # an existing Printify product — Video AI no longer requires one
+    # (direct image upload is the primary path), so both may be blank.
+    product_id = models.CharField(max_length=64, blank=True, db_index=True)
     product_title = models.CharField(max_length=255, blank=True)
+    source_image = models.URLField(max_length=1000, blank=True)
+    duration_tier = models.CharField(max_length=20, choices=TIER_CHOICES, blank=True, default="custom")
+    prompt_model = models.CharField(max_length=100, blank=True)
     model = models.CharField(max_length=10, choices=MODEL_CHOICES)
     prompt = models.TextField(blank=True)
     duration = models.CharField(max_length=4)

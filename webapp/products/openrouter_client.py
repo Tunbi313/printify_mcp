@@ -71,12 +71,14 @@ def text_chat(prompt: str, max_tokens: int = 200) -> str:
         return (data["choices"][0]["message"]["content"] or "").strip()
 
 
-def vision_chat_multi(image_urls: list[str], prompt: str, max_tokens: int = 200) -> str:
+def vision_chat_multi(image_urls: list[str], prompt: str, max_tokens: int = 200, model: str | None = None) -> str:
     """Send multiple images (already-hosted URLs, e.g. a product's several
     mockup angles) + one text prompt to a vision-capable model, so it can
-    reason about the whole product rather than a single photo."""
+    reason about the whole product rather than a single photo. Pass
+    `model` to override the configured default for this one call (e.g. a
+    premium model for a specific high-value creative task)."""
     _check_key()
-    model = os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
+    model = model or os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
     content = [{"type": "text", "text": prompt}]
     for url in image_urls:
         content.append({"type": "image_url", "image_url": {"url": url}})

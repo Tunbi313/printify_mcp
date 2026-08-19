@@ -1,5 +1,6 @@
 import base64
 import io
+import itertools
 import json
 import re
 import uuid
@@ -7,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 
 from PIL import Image
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
 from django.core.files.base import ContentFile
@@ -246,6 +248,25 @@ def upscale_page(request):
 def _bytes_to_data_url(data: bytes, content_type: str = "image/png") -> str:
     b64 = base64.b64encode(data).decode()
     return f"data:{content_type};base64,{b64}"
+
+
+def _resolve_image_for_vision(source_image: str) -> str:
+    """Return something a vision LLM can actually fetch. Remote http(s)
+    URLs pass through unchanged; a local storage path (dev mode, no R2
+    configured) gets read directly off disk and inlined as a data: URL,
+    since the LLM provider can't reach localhost."""
+    if source_image.startswith(("http://", "https://", "data:")):
+        return source_image
+    media_prefix = settings.MEDIA_URL.strip("/") + "/"
+    path = source_image.lstrip("/")
+    if path.startswith(media_prefix):
+        path = path[len(media_prefix):]
+    try:
+        with default_storage.open(path, "rb") as f:
+            content_type = "image/png" if path.lower().endswith(".png") else "image/jpeg"
+            return _bytes_to_data_url(f.read(), content_type)
+    except OSError:
+        return source_image  # best effort — let it fail upstream with a clear error
 
 
 def _crop_to_content(img: Image.Image) -> Image.Image:
@@ -698,30 +719,7 @@ def _guess_model_action(product: dict) -> str:
     return GENERIC_MODEL_ACTION
 
 
-VIDEO_MOTION_HINTS = {
-    "tshirt": "camera slowly orbits around the folded t-shirt, soft studio "
-              "lighting, subtle fabric movement, smooth motion",
-    "hat": "camera slowly orbits around the hat, soft studio lighting, smooth motion",
-    "hat_vintage_a": "camera slowly orbits around the hat, soft studio lighting, smooth motion",
-    "hat_vintage_b": "camera slowly orbits around the hat, soft studio lighting, smooth motion",
-    "mug": "steam gently rises from the mug, camera slowly zooms in, soft studio lighting",
-    "stein_mug": "camera slowly zooms in on the mug, soft studio lighting",
-    "tumbler": "camera slowly rotates around the tumbler, soft studio lighting",
-    "candle": "the candle flame gently flickers, camera slowly zooms in, warm soft lighting",
-    "can_glass_engraved": "camera slowly rotates around the glass, light glinting off the etched design",
-    "poster_matte_2x3": "camera slowly zooms in on the poster, subtle parallax, soft lighting",
-    "canvas_2x3": "camera slowly zooms in on the canvas, subtle parallax, soft lighting",
-    "sticker": "camera slowly zooms in on the sticker, subtle light glint",
-}
 GENERIC_VIDEO_MOTION = "camera slowly zooms in on the product, smooth subtle motion, professional product photography style"
-
-
-def _guess_video_motion(product: dict) -> str:
-    blueprint_id = product.get("blueprint_id")
-    for key, tpl in TEMPLATES.items():
-        if tpl.get("blueprint_id") == blueprint_id:
-            return VIDEO_MOTION_HINTS.get(key, GENERIC_VIDEO_MOTION)
-    return GENERIC_VIDEO_MOTION
 
 
 def _list_published_products(shop_id: str) -> list:
@@ -941,9 +939,333 @@ def _mockup_studio_model_post(request, product_id, source_images, context):
 
 
 VIDEO_STUDIO_PAGE_SIZE = 30
+VIDEO_PROMPT_MAX_IMAGES = 5
+
+# Each tier maps directly to a real ad placement, per the fal.ai model
+# research: Kling O3 Pro caps at 15s (cinematic single-take quality),
+# Seedance 2.5 natively supports up to 30s (used for the longer tiers).
+DURATION_TIERS = {
+    "product_page": {"seconds": 5, "label": "Product Page (5s)", "desc": "Quảng cáo ngắn ngay trên trang sản phẩm", "recommended_model": "kling"},
+    "homepage": {"seconds": 10, "label": "Homepage (10s)", "desc": "Banner/hero video trang chủ", "recommended_model": "kling"},
+    "real_ad": {"seconds": 15, "label": "Real Ad (15s)", "desc": "Quảng cáo thật cho sản phẩm chủ lực", "recommended_model": "seedance"},
+    "story_ad": {"seconds": 20, "label": "Story Ad (15-20s+)", "desc": "Quảng cáo dạng câu chuyện, nhiều beat", "recommended_model": "seedance"},
+}
+
+# Premium prompt-writing models, selectable per-generation on the UI —
+# kept separate from OPENROUTER_MODEL (used for cheap title/tag/crawl
+# tasks) since ad-video prompts are worth paying for real quality.
+PROMPT_MODEL_CHOICES = [
+    ("anthropic/claude-opus-5", "Claude Opus 5"),
+    ("openai/gpt-5.6-sol", "GPT-5.6 Sol"),
+]
+
+MODEL_CAPABILITY_BRIEFS = {
+    "kling": (
+        "Target model: Kling O3 Pro. Its strength is smooth, highly "
+        "controllable, cinematic single-take camera motion, up to 15s. "
+        "It CANNOT cut between different shots/angles within one "
+        "generation — describe one continuous choreography only."
+    ),
+    "seedance": (
+        "Target model: Seedance 2.5. Its strength is a long single take "
+        "(up to 30s) that keeps the subject/product visually consistent "
+        "throughout, with synchronized audio. Good for multi-beat "
+        "choreography within ONE continuous take — still no hard cuts."
+    ),
+    "ltx": (
+        "Target model: LTX Video 2.0 Fast. A budget option, up to 20s, "
+        "built-in audio, but motion coherence is less refined on complex "
+        "or long moves than Kling/Seedance — keep the described motion "
+        "simpler and more modest."
+    ),
+}
 
 
-def video_studio_index(request):
+def _video_pacing_note(duration: int) -> str:
+    if duration <= 6:
+        return (
+            f"The video will be exactly {duration} seconds long — that's "
+            "only enough time for ONE simple continuous motion. Do not "
+            "describe multiple beats or a sequence of events."
+        )
+    if duration <= 11:
+        return (
+            f"The video will be exactly {duration} seconds long. Describe "
+            "TWO beats in order (e.g. establish the subject with impact, "
+            "then one clear move or reveal), paced to fill the runtime "
+            "without feeling static or repetitive."
+        )
+    if duration <= 16:
+        return (
+            f"The video will be exactly {duration} seconds long — enough "
+            "for a real advertising arc. Describe 2-3 beats in order: an "
+            "opening that establishes the subject with impact, a middle "
+            "beat that reveals a real detail or moves into context, and a "
+            "confident closing beat that settles on the product/subject "
+            "like the final hold of a TV ad."
+        )
+    return (
+        f"The video will be exactly {duration} seconds long — a short "
+        "STORY ad, not a single camera move. Describe 3-4 beats forming "
+        "an arc: (1) an immediate, attention-grabbing opening — the "
+        "strongest visual is already on screen at frame 0, no slow "
+        "build-up; (2) development — move into context or reveal a real "
+        "detail; (3) an optional small turn or shift in energy; (4) a "
+        "confident closing beat that lingers on the product/subject, like "
+        "an ad's final hero shot. All of this is still ONE continuous, "
+        "unbroken camera take — choreograph the camera through the "
+        "beats, never describe hard cuts between shots."
+    )
+
+
+def _build_video_prompt_instruction(duration: int, num_images: int, target_model: str) -> str:
+    capability_brief = MODEL_CAPABILITY_BRIEFS.get(target_model, MODEL_CAPABILITY_BRIEFS["kling"])
+    pacing_note = _video_pacing_note(duration)
+
+    craft_rules = (
+        "CAMERA CRAFT — follow these rules used by professional motion "
+        "directors:\n"
+        "- One primary motion idea running through the clip. Never stack "
+        "unrelated moves (rotate AND zoom AND pan at once) — image-to-"
+        "video models blend stacked motion into a blurry mess.\n"
+        "- The opening instant is already the strongest frame (the source "
+        "photo) — never describe a fade-in, blur-to-focus, or slow reveal "
+        "from black. Motion starts immediately, not after a build-up.\n"
+        "- Keep scale/zoom change subtle and eased: a slow push-in or "
+        "pull-back that accelerates in and decelerates out, never a snap "
+        "or crash-zoom, never linear/mechanical.\n"
+        "- Name camera moves with real cinematography terms — orbit, "
+        "turntable, dolly/push-in, pan, tilt, parallax drift — not vague "
+        "words like \"nice motion\" or \"cool effect.\"\n"
+        "- Give lighting/mood in one short clause (e.g. \"soft studio key "
+        "light\", \"warm golden-hour light\") so the render stays "
+        "consistent instead of flat or overexposed.\n\n"
+    )
+
+    framing_note = (
+        "The FIRST image below is the EXACT photo that will be used as "
+        "the video's starting frame (frame 0) — build every prompt "
+        "assuming that is what's on screen. Any additional photos are "
+        "just other angles of the same subject for material/color "
+        "reference only — never describe a crop, background or detail "
+        "that is only visible in a reference photo and not in the first "
+        "image.\n\n"
+        if num_images > 1 else ""
+    )
+
+    style_instruction = (
+        "First, look at the FIRST image and decide: does it show a real, "
+        "photorealistic PERSON (a model wearing/holding/using the "
+        "product)?\n\n"
+        "IF YES — write 4 DISTINCT prompts using human-plausible motion "
+        "only (a real face/body warps if pushed too hard, so keep every "
+        "move small and natural):\n"
+        "1. \"natural\" — subtle life-like motion only: a soft breath, "
+        "gentle hair/fabric sway, a slow blink or small head movement; "
+        "camera holds still or drifts almost imperceptibly.\n"
+        "2. \"detail\" — camera slowly pushes in from the person toward "
+        "the product they're holding/wearing, settling close on the "
+        "print/design; the person stays nearly still.\n"
+        "3. \"turn\" — the person makes one slow, continuous, natural "
+        "turn (body or head) so the product reads from a slightly "
+        "different angle; no jerky or repeated movement.\n"
+        "4. \"dynamic\" — the most energetic of the four but still "
+        "human-plausible: one small natural gesture paired with a "
+        "slightly quicker camera push-in, ad energy without breaking "
+        "realism.\n\n"
+        "IF NO (a plain product/scene, no person) — write 4 DISTINCT "
+        "camera/motion prompts:\n"
+        "1. \"rotate\" — a clean, professional turntable-style shot: the "
+        "product slowly rotates or the camera orbits at a constant, even "
+        "speed, product centered and anchored, soft studio lighting.\n"
+        "2. \"zoom\" — a slow, eased dolly/push-in that settles close on "
+        "one specific real detail visible in the photos — subtle scale "
+        "change, never a crash-zoom.\n"
+        "3. \"lifestyle\" — the product in a natural real-world setting "
+        "implied by the product type, a gentle Ken-Burns-style pan or "
+        "drift, soft ambient light.\n"
+        "4. \"dynamic\" — the fastest, punchiest camera move of the four "
+        "for a social-media-ad feel — still ONE motion performed with "
+        "more energy, not multiple stacked moves.\n\n"
+        "Apply the duration pacing above WITHIN each of these 4 styles — "
+        "a longer duration means more beats inside that same style "
+        "archetype, not a departure from it.\n\n"
+    )
+
+    style_keys = (
+        'if a person is shown: '
+        '[{"key": "natural", "label": "Chuyển động tự nhiên", "prompt": "..."}, '
+        '{"key": "detail", "label": "Cận cảnh sản phẩm", "prompt": "..."}, '
+        '{"key": "turn", "label": "Xoay người nhẹ", "prompt": "..."}, '
+        '{"key": "dynamic", "label": "Năng động, quảng cáo", "prompt": "..."}] '
+        '— otherwise: '
+        '[{"key": "rotate", "label": "Xoay chuyên nghiệp", "prompt": "..."}, '
+        '{"key": "zoom", "label": "Zoom cận cảnh", "prompt": "..."}, '
+        '{"key": "lifestyle", "label": "Bối cảnh đời thường", "prompt": "..."}, '
+        '{"key": "dynamic", "label": "Năng động, quảng cáo", "prompt": "..."}] '
+    )
+
+    return (
+        "You are a world-class creative director for AI-generated "
+        "advertising video (image-to-video models like Kling/Seedance/"
+        "LTX — they animate a static image, they don't generate from "
+        f"nothing). You are shown {num_images} photo(s) of the SAME "
+        "subject. Study its actual shape, material, color and printed "
+        "design/appearance in the images.\n\n"
+        f"{capability_brief}\n\n"
+        f"{framing_note}"
+        f"{pacing_note}\n\n"
+        f"{craft_rules}"
+        f"{style_instruction}"
+        "Each prompt must be in English, describing ONLY camera/"
+        "lighting/motion (and physically plausible human motion if a "
+        "person is shown), correctly paced for the exact duration stated "
+        "above — never invent new colors, text, logos or shapes that "
+        "contradict what is actually in the photos.\n\n"
+        "Respond with ONLY a JSON array, no markdown fences, no extra "
+        "text, no pretty-printing — a single compact line with no line "
+        f"breaks or indentation, in this exact shape: {style_keys}"
+        "— \"label\" must be the Vietnamese labels given above, \"prompt\" in English."
+    )
+
+
+def video_ai_upload_image(request):
+    """AJAX endpoint: host an uploaded file on fal.ai's storage immediately
+    on file-select (not just at final form submit), so "AI sinh prompt"
+    has a real URL to hand the vision model right away."""
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+    image_file = request.FILES.get("image")
+    if not image_file:
+        return JsonResponse({"error": "Chưa có file ảnh."}, status=400)
+    try:
+        url = fal_upscale.upload_image_bytes(image_file.read(), image_file.content_type or "image/jpeg")
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+    return JsonResponse({"url": url})
+
+
+def video_ai_studio(request):
+    context = {
+        "duration_min": fal_video.DURATION_MIN,
+        "duration_max": fal_video.DURATION_MAX,
+        "resolutions": fal_video.SEEDANCE_RESOLUTIONS,
+        "aspect_ratios": fal_video.ASPECT_RATIOS,
+        "duration_tiers": DURATION_TIERS,
+        "prompt_model_choices": PROMPT_MODEL_CHOICES,
+        "default_prompt": GENERIC_VIDEO_MOTION,
+        "generate_audio": True,
+        "selected_duration_tier": "product_page",
+        "selected_duration": DURATION_TIERS["product_page"]["seconds"],
+        "selected_model": "kling",
+        "selected_prompt_model": PROMPT_MODEL_CHOICES[0][0],
+    }
+
+    # The "pick from an existing product" flow hands back its chosen
+    # image via query params so it arrives here pre-selected.
+    picked_image = request.GET.get("source_image", "")
+    if picked_image:
+        context.update({
+            "selected_source_image": picked_image,
+            "picked_product_id": request.GET.get("product_id", ""),
+            "picked_product_title": request.GET.get("product_title", ""),
+        })
+
+    if request.method != "POST":
+        return render(request, "products/video_ai_studio.html", context)
+
+    duration_tier = request.POST.get("duration_tier", "product_page")
+    if duration_tier not in DURATION_TIERS:
+        duration_tier = "product_page"
+    model = request.POST.get("model") or DURATION_TIERS[duration_tier]["recommended_model"]
+    if model not in ("kling", "seedance", "ltx"):
+        model = "kling"
+    prompt = request.POST.get("prompt", "").strip()
+    duration = fal_video.clamp_duration(
+        model, request.POST.get("duration") or DURATION_TIERS[duration_tier]["seconds"],
+    )
+    resolution = request.POST.get("resolution", "720p")
+    aspect_ratio = request.POST.get("aspect_ratio", "16:9")
+    if aspect_ratio not in fal_video.ASPECT_RATIOS:
+        aspect_ratio = fal_video.ASPECT_RATIOS[0]
+    if model == "ltx":
+        aspect_ratio = "16:9"  # LTX only outputs 16:9, no param to change it
+    generate_audio = request.POST.get("generate_audio") == "on"
+    product_id = request.POST.get("product_id", "").strip()
+    product_title = request.POST.get("product_title", "").strip()
+    prompt_model = request.POST.get("prompt_model") or PROMPT_MODEL_CHOICES[0][0]
+    if prompt_model not in dict(PROMPT_MODEL_CHOICES):
+        prompt_model = PROMPT_MODEL_CHOICES[0][0]
+
+    context.update({
+        "selected_model": model,
+        "prompt": prompt,
+        "selected_duration": duration,
+        "selected_duration_tier": duration_tier,
+        "selected_resolution": resolution,
+        "selected_aspect_ratio": aspect_ratio,
+        "generate_audio": generate_audio,
+        "selected_prompt_model": prompt_model,
+        "picked_product_id": product_id,
+        "picked_product_title": product_title,
+    })
+
+    # A direct upload takes priority over a previously-picked URL.
+    uploaded_file = request.FILES.get("image_upload")
+    source_image = request.POST.get("source_image", "").strip()
+    if uploaded_file:
+        try:
+            source_image = fal_upscale.upload_image_bytes(
+                uploaded_file.read(), uploaded_file.content_type or "image/jpeg",
+            )
+        except Exception as exc:
+            messages.error(request, f"Lỗi khi upload ảnh: {exc}")
+            return render(request, "products/video_ai_studio.html", context)
+    context["selected_source_image"] = source_image
+
+    if not source_image:
+        messages.error(request, "Bạn chưa upload ảnh hoặc chọn ảnh nguồn.")
+        return render(request, "products/video_ai_studio.html", context)
+    if not prompt:
+        messages.error(request, "Bạn chưa mô tả chuyển động cho video.")
+        return render(request, "products/video_ai_studio.html", context)
+
+    try:
+        if model == "seedance":
+            if resolution not in fal_video.SEEDANCE_RESOLUTIONS:
+                resolution = fal_video.SEEDANCE_RESOLUTIONS[1]
+            video_bytes, content_type = fal_video.generate_seedance_video(
+                source_image, prompt, duration, resolution, aspect_ratio, generate_audio,
+            )
+        elif model == "ltx":
+            resolution = "1080p"
+            video_bytes, content_type = fal_video.generate_ltx_video(
+                source_image, prompt, duration,
+            )
+        else:
+            resolution = ""  # Kling O3 Pro has no resolution knob
+            video_bytes, content_type = fal_video.generate_kling_video(
+                source_image, prompt, duration, generate_audio,
+            )
+    except Exception as exc:
+        messages.error(request, f"Lỗi khi tạo video: {exc}")
+        return render(request, "products/video_ai_studio.html", context)
+
+    cost = fal_video.estimate_cost_usd(model, duration, resolution, generate_audio)
+    filename = f"ai_videos/{(product_id or 'upload')}_{uuid.uuid4().hex[:8]}.mp4"
+    saved_path = default_storage.save(filename, ContentFile(video_bytes))
+    result_video = AiVideo.objects.create(
+        product_id=product_id, product_title=product_title,
+        source_image=source_image[:1000], duration_tier=duration_tier,
+        prompt_model=prompt_model, model=model, prompt=prompt,
+        duration=str(duration), aspect_ratio=aspect_ratio,
+        cost_usd=cost, file_path=saved_path,
+    )
+    context["result_video"] = result_video
+    return render(request, "products/video_ai_studio.html", context)
+
+
+def video_ai_pick_products(request):
     try:
         shop_id = _current_shop_id(request)
         published = _list_published_products(shop_id)
@@ -953,21 +1275,16 @@ def video_studio_index(request):
 
     paginator = Paginator(published, VIDEO_STUDIO_PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get("page"))
-    return render(request, "products/video_studio_index.html", {"page_obj": page_obj})
+    return render(request, "products/video_ai_pick_products.html", {"page_obj": page_obj})
 
 
-def video_studio(request, product_id):
+def video_ai_pick_product_images(request, product_id):
     shop_id = _current_shop_id(request)
     try:
         product = pc.get_product(product_id, shop_id)
     except Exception as exc:
         messages.error(request, f"Không lấy được sản phẩm: {exc}")
-        return redirect("index")
-
-    external = product.get("external") or {}
-    if not external.get("id"):
-        messages.error(request, "Video AI chỉ áp dụng cho sản phẩm đã publish lên store.")
-        return redirect("video_studio_index")
+        return redirect("video_ai_pick_products")
 
     original_images = [img.get("src") for img in product.get("images", []) if img.get("src")]
     mockup_kind_labels = dict(AiMockup.KIND_CHOICES)
@@ -979,265 +1296,52 @@ def video_studio(request, product_id):
             for m in ai_mockups
         ]
     )
-    source_images = [c["src"] for c in image_choices]
-    context = {
-        "product": product,
-        "source_images": source_images,
-        "image_choices": image_choices,
-        "default_prompt": _guess_video_motion(product),
-        "duration_min": fal_video.DURATION_MIN,
-        "duration_max": fal_video.DURATION_MAX,
-        "resolutions": fal_video.SEEDANCE_RESOLUTIONS,
-        "aspect_ratios": fal_video.ASPECT_RATIOS,
-        "generate_audio": True,
-        "selected_duration": 6,
-    }
-
-    if request.method != "POST":
-        return render(request, "products/video_studio.html", context)
-
-    source_image = request.POST.get("source_image", "")
-    model = request.POST.get("model", "kling")
-    if model not in ("kling", "seedance", "ltx"):
-        model = "kling"
-    prompt = request.POST.get("prompt", "").strip()
-    duration = fal_video.clamp_duration(model, request.POST.get("duration"))
-    resolution = request.POST.get("resolution", "720p")
-    aspect_ratio = request.POST.get("aspect_ratio", "16:9")
-    if aspect_ratio not in fal_video.ASPECT_RATIOS:
-        aspect_ratio = fal_video.ASPECT_RATIOS[0]
-    if model == "ltx":
-        aspect_ratio = "16:9"  # LTX only outputs 16:9, no param to change it
-    generate_audio = request.POST.get("generate_audio") == "on"
-
-    context.update({
-        "selected_source_image": source_image,
-        "selected_model": model,
-        "prompt": prompt,
-        "selected_duration": duration,
-        "selected_resolution": resolution,
-        "selected_aspect_ratio": aspect_ratio,
-        "generate_audio": generate_audio,
+    return render(request, "products/video_ai_pick_product_images.html", {
+        "product": product, "image_choices": image_choices,
     })
 
-    if source_image not in source_images:
-        messages.error(request, "Ảnh gốc không hợp lệ.")
-        return render(request, "products/video_studio.html", context)
-    if not prompt:
-        messages.error(request, "Bạn chưa mô tả chuyển động cho video.")
-        return render(request, "products/video_studio.html", context)
 
-    try:
-        if model == "seedance":
-            if resolution not in fal_video.SEEDANCE_RESOLUTIONS:
-                resolution = fal_video.SEEDANCE_RESOLUTIONS[0]
-            video_bytes, content_type = fal_video.generate_seedance_video(
-                source_image, prompt, duration, resolution, aspect_ratio, generate_audio,
-            )
-        elif model == "ltx":
-            resolution = "1080p"
-            video_bytes, content_type = fal_video.generate_ltx_video(
-                source_image, prompt, duration,
-            )
-        else:
-            resolution = "720p"  # Kling has no resolution knob; kept for cost estimate consistency
-            video_bytes, content_type = fal_video.generate_kling_video(
-                source_image, prompt, duration, aspect_ratio,
-            )
-    except Exception as exc:
-        messages.error(request, f"Lỗi khi tạo video: {exc}")
-        return render(request, "products/video_studio.html", context)
-
-    cost = fal_video.estimate_cost_usd(model, duration, resolution)
-    filename = f"ai_videos/{product_id}_{uuid.uuid4().hex[:8]}.mp4"
-    saved_path = default_storage.save(filename, ContentFile(video_bytes))
-    result_video = AiVideo.objects.create(
-        product_id=product_id, product_title=product.get("title", ""),
-        model=model, prompt=prompt, duration=str(duration), aspect_ratio=aspect_ratio,
-        cost_usd=cost, file_path=saved_path,
-    )
-    context["result_video"] = result_video
-    return render(request, "products/video_studio.html", context)
-
-
-VIDEO_PROMPT_MAX_IMAGES = 5
-
-
-def video_generate_prompts(request, product_id):
+def video_generate_prompts(request):
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
 
-    shop_id = _current_shop_id(request)
-    try:
-        product = pc.get_product(product_id, shop_id)
-    except Exception as exc:
-        return JsonResponse({"error": f"Không lấy được sản phẩm: {exc}"}, status=502)
-
-    original_images = [img.get("src") for img in product.get("images", []) if img.get("src")]
-    if not original_images:
-        return JsonResponse({"error": "Sản phẩm chưa có ảnh mockup nào."}, status=400)
-
-    # Scope the vision call to whichever photo the user actually selected as
-    # the video's source (radio button) — including AI mockups (e.g. a
-    # model holding/wearing the product) — so the written prompt matches
-    # what will really be on screen at frame 0, not a generic blend of
-    # unrelated angles.
     selected_source_image = request.POST.get("source_image", "").strip()
-    mockup_by_url = {m.url: m for m in AiMockup.objects.filter(product_id=product_id)}
-    selected_mockup = mockup_by_url.get(selected_source_image)
-    is_model_shot = bool(selected_mockup and selected_mockup.kind == "model")
+    if not selected_source_image:
+        return JsonResponse({"error": "Chưa có ảnh nguồn để AI xem."}, status=400)
 
-    image_urls = []
-    if selected_mockup:
-        # AI mockups may be stored on local disk in dev (a relative
-        # /media/ path OpenRouter's servers can't fetch), so read the
-        # bytes ourselves and inline them as a data: URL instead of
-        # trusting the storage URL to be publicly reachable.
-        try:
-            with default_storage.open(selected_mockup.file_path, "rb") as f:
-                image_urls.append(_bytes_to_data_url(f.read(), "image/png"))
-        except OSError:
-            pass
-    elif selected_source_image:
-        image_urls.append(selected_source_image)
-    for src in original_images:
-        if src not in image_urls:
-            image_urls.append(src)
-    image_urls = image_urls[:VIDEO_PROMPT_MAX_IMAGES]
+    target_model = request.POST.get("model", "kling")
+    if target_model not in ("kling", "seedance", "ltx"):
+        target_model = "kling"
+    prompt_model = request.POST.get("prompt_model") or PROMPT_MODEL_CHOICES[0][0]
+    if prompt_model not in dict(PROMPT_MODEL_CHOICES):
+        prompt_model = PROMPT_MODEL_CHOICES[0][0]
 
     try:
-        duration = int(request.POST.get("duration", 6))
+        duration = int(request.POST.get("duration", 5))
     except ValueError:
-        duration = 6
-    duration = max(fal_video.DURATION_MIN, min(fal_video.DURATION_MAX, duration))
-    if duration <= 8:
-        pacing_note = (
-            f"The video will be exactly {duration} seconds long — that's "
-            "only enough time for ONE simple continuous motion. Do not "
-            "describe multiple beats or a sequence of events."
-        )
-    else:
-        pacing_note = (
-            f"The video will be exactly {duration} seconds long — long "
-            "enough that a single static motion would feel repetitive or "
-            "loop-y. Describe a short sequence of 2-3 distinct motion beats "
-            "in order (e.g. establish the product, then move/reveal a "
-            "detail, then a final settling shot), paced to fill the full "
-            f"{duration}s runtime without feeling static."
-        )
+        duration = 5
+    duration = fal_video.clamp_duration(target_model, duration)
 
-    craft_rules = (
-        "CAMERA CRAFT — follow these rules used by professional motion "
-        "directors:\n"
-        "- One primary motion idea per prompt. Never stack unrelated moves "
-        "(rotate AND zoom AND pan at once) — image-to-video models blend "
-        "stacked motion into a blurry mess. Pick one clear camera move and "
-        "commit to it for the whole clip.\n"
-        "- The opening instant is already the strongest frame (the source "
-        "photo) — never describe a fade-in, blur-to-focus, or slow reveal "
-        "from black. Motion starts immediately, not after a build-up.\n"
-        "- Keep scale/zoom change subtle and eased: a slow push-in or "
-        "pull-back that accelerates in and decelerates out, never a snap "
-        "or crash-zoom, never linear/mechanical.\n"
-        "- Name the camera move with real cinematography terms — orbit, "
-        "turntable, dolly/push-in, pan, tilt, parallax drift — not vague "
-        "words like \"nice motion\" or \"cool effect.\"\n"
-        "- Give lighting/mood in one short clause (e.g. \"soft studio key "
-        "light\", \"warm golden-hour light\") so the render stays "
-        "consistent instead of flat or overexposed.\n\n"
-    )
+    image_urls = [_resolve_image_for_vision(selected_source_image)]
+    # If this image came from a known product, add a couple more of that
+    # product's photos as material/color reference (never as the frame-0
+    # image itself — that's always the one actually being animated).
+    product_id = request.POST.get("product_id", "").strip()
+    if product_id:
+        try:
+            shop_id = _current_shop_id(request)
+            product = pc.get_product(product_id, shop_id)
+            for img in product.get("images", []):
+                src = img.get("src")
+                if src and src != selected_source_image and len(image_urls) < VIDEO_PROMPT_MAX_IMAGES:
+                    image_urls.append(src)
+        except Exception:
+            pass  # reference images are a nice-to-have, never block prompt generation
 
-    framing_note = (
-        "The FIRST image below is the EXACT photo that will be used as the "
-        "video's starting frame (frame 0) — build every prompt assuming "
-        "that is what's on screen. Any additional photos are just other "
-        "angles of the same product for material/color reference only — "
-        "never describe a crop, background or detail that is only visible "
-        "in a reference photo and not in the first image.\n\n"
-        if len(image_urls) > 1 else ""
-    )
-
-    if is_model_shot:
-        style_instruction = (
-            "The first image shows a REAL PERSON naturally holding/wearing/"
-            "using the product — not a plain product-only shot. Write 4 "
-            "DISTINCT prompts for animating THIS photo, each a different "
-            "style. Because it's a photorealistic person, keep every move "
-            "small and physically plausible — exaggerated or fast motion "
-            "on a real face/body reads as broken or uncanny; never warp a "
-            "face or limb:\n"
-            "1. \"natural\" — subtle life-like motion only: a soft breath, "
-            "gentle hair or fabric sway, a slow blink or small natural "
-            "head movement; camera holds still or drifts almost "
-            "imperceptibly.\n"
-            "2. \"detail\" — camera slowly pushes in from the person "
-            "toward the product they're holding/wearing, settling close "
-            "on the print/design; the person stays nearly still "
-            "throughout.\n"
-            "3. \"turn\" — the person makes one slow, continuous, natural "
-            "turn (body or head) so the product reads from a slightly "
-            "different angle; no jerky or repeated movement.\n"
-            "4. \"dynamic\" — the most energetic of the four but still "
-            "human-plausible: one small natural gesture (e.g. adjusting "
-            "the product, a soft smile) paired with a slightly quicker "
-            "camera push-in, social-ad energy without breaking realism.\n\n"
-        )
-        style_keys = (
-            '[{"key": "natural", "label": "Chuyển động tự nhiên", "prompt": "..."}, '
-            '{"key": "detail", "label": "Cận cảnh sản phẩm", "prompt": "..."}, '
-            '{"key": "turn", "label": "Xoay người nhẹ", "prompt": "..."}, '
-            '{"key": "dynamic", "label": "Năng động, quảng cáo", "prompt": "..."}] '
-        )
-    else:
-        style_instruction = (
-            "Write 4 DISTINCT camera/motion prompts for animating this "
-            "exact product, each a different style:\n"
-            "1. \"rotate\" — a clean, professional turntable-style product "
-            "shot: either the product slowly rotates in place or the "
-            "camera orbits around it at a constant, even speed, product "
-            "centered and anchored, soft studio lighting.\n"
-            "2. \"zoom\" — a slow, eased dolly/push-in that settles close "
-            "on one specific real detail visible in the photos (texture, "
-            "print, seam, material) — subtle scale change, never a crash-"
-            "zoom.\n"
-            "3. \"lifestyle\" — the product in a natural real-world "
-            "setting implied by the product type, a gentle Ken-Burns-style "
-            "pan or drift (one direction, slow, eased), soft ambient "
-            "light.\n"
-            "4. \"dynamic\" — the fastest, punchiest camera move of the "
-            "four (a quicker push-in or a short parallax swing) for a "
-            "social-media-ad feel — still ONE motion performed with more "
-            "energy/speed, not multiple stacked moves.\n\n"
-        )
-        style_keys = (
-            '[{"key": "rotate", "label": "Xoay chuyên nghiệp", "prompt": "..."}, '
-            '{"key": "zoom", "label": "Zoom cận cảnh", "prompt": "..."}, '
-            '{"key": "lifestyle", "label": "Bối cảnh đời thường", "prompt": "..."}, '
-            '{"key": "dynamic", "label": "Năng động, quảng cáo", "prompt": "..."}] '
-        )
-
-    instruction = (
-        "You are a creative director for short AI-generated product promo "
-        "videos (used with image-to-video models like Kling/Seedance/LTX). "
-        f"You are shown {len(image_urls)} photo(s) related to the SAME "
-        "product. Study the product's actual shape, material, color, and "
-        "printed design in the images.\n\n"
-        f"{framing_note}"
-        f"{pacing_note}\n\n"
-        f"{craft_rules}"
-        f"{style_instruction}"
-        "Each prompt must be in English, 1-2 sentences, describing ONLY "
-        "camera/lighting/motion, correctly paced for the exact duration "
-        "stated above — never invent new colors, text, logos or shapes "
-        "that contradict what is actually in the photos.\n\n"
-        "Respond with ONLY a JSON array, no markdown fences, no extra "
-        "text, no pretty-printing — a single compact line with no line "
-        f"breaks or indentation, in this exact shape: {style_keys}"
-        "— \"label\" must be the Vietnamese labels given above, \"prompt\" in English."
-    )
+    instruction = _build_video_prompt_instruction(duration, len(image_urls), target_model)
 
     try:
-        raw = openrouter_client.vision_chat_multi(image_urls, instruction, max_tokens=2000)
+        raw = openrouter_client.vision_chat_multi(image_urls, instruction, max_tokens=3000, model=prompt_model)
     except Exception as exc:
         return JsonResponse({"error": str(exc)}, status=502)
 
@@ -1361,6 +1465,61 @@ def _existing_skus() -> set:
             if isinstance(v, dict) and v.get("sku"):
                 used.add(v["sku"])
     return used
+
+
+MAX_VARIANT_COMBOS = 100
+
+
+def _expand_variants(extracted: dict) -> list[dict]:
+    """Build the full variant matrix (cartesian product of every option's
+    values) from the AI's `options` (all values per dimension, read off
+    the page's swatches/buttons) + `selected_variant` (the one confirmed
+    combo's price/sku/etc) + `option_value_images`/`option_value_prices`
+    (per-value photos and prices — e.g. every color's own photo, every
+    size's own price — instead of just whatever happened to be selected
+    when the page loaded). The AI only ever has to read labels off the
+    page — never guess a price/image for a combination it can't actually
+    see; anything not confirmed just inherits the base product price/
+    sku/image as a fallback (handled by shopify_csv.py already)."""
+    options = [o for o in (extracted.get("options") or []) if o.get("name") and o.get("values")][:3]
+    if not options:
+        return []
+
+    value_lists = [o["values"][:20] for o in options]  # guard against one runaway dimension
+    combos = list(itertools.product(*value_lists))[:MAX_VARIANT_COMBOS]
+
+    selected = extracted.get("selected_variant") or {}
+    selected_values = tuple(selected.get("option_values") or [])
+
+    def _value_map(field: str) -> dict[str, dict[str, object]]:
+        result: dict[str, dict[str, object]] = {}
+        for entry in (extracted.get(field) or []):
+            name, value = entry.get("option_name"), entry.get("value")
+            payload = entry.get("image") if field == "option_value_images" else entry.get("price")
+            if name and value and payload is not None:
+                result.setdefault(name, {})[value] = payload
+        return result
+
+    value_images = _value_map("option_value_images")
+    value_prices = _value_map("option_value_prices")
+
+    variants = []
+    for combo in combos:
+        variant = {}
+        for i, value in enumerate(combo):
+            opt_name = options[i]["name"]
+            variant[f"option{i + 1}_name"] = opt_name
+            variant[f"option{i + 1}_value"] = value
+            if value in value_images.get(opt_name, {}):
+                variant["image"] = value_images[opt_name][value]
+            if value in value_prices.get(opt_name, {}):
+                variant["price"] = value_prices[opt_name][value]
+        if combo == selected_values:
+            for field in ("price", "sku", "barcode", "weight_grams", "image"):
+                if selected.get(field) is not None:
+                    variant[field] = selected[field]
+        variants.append(variant)
+    return variants
 
 
 def _real_compare_at_price(price, compare_at_price):
@@ -1493,13 +1652,18 @@ def crawl_studio(request):
         # AI composes a SKU when the source page has none; guarantee it's
         # actually unique store-wide (across every past crawl too) and
         # prefix it with the vendor so it reads like a real internal code.
-        product_sku = _unique_sku(
-            f"{vendor_prefix}-{_slugify_sku(extracted.get('sku') or title)}", used_skus,
-        )
+        raw_base_sku = extracted.get("sku") or title
+        product_sku = _unique_sku(f"{vendor_prefix}-{_slugify_sku(raw_base_sku)}", used_skus)
         variants = []
-        for v in (extracted.get("variants") or []):
-            v = dict(v)
-            fallback = v.get("sku") or f"{title} {v.get('option1_value', '')} {v.get('option2_value', '')}"
+        for v in _expand_variants(extracted):
+            # Base the fallback on the short product SKU, not the (often
+            # long) title — otherwise _slugify_sku's length cap eats the
+            # whole budget before it even reaches the option values, and
+            # every variant's SKU collapses to the same truncated title
+            # text distinguished only by an arbitrary -2/-3/-4 counter.
+            fallback = v.get("sku") or (
+                f"{raw_base_sku} {v.get('option1_value', '')} {v.get('option2_value', '')} {v.get('option3_value', '')}"
+            )
             v["sku"] = _unique_sku(f"{vendor_prefix}-{_slugify_sku(fallback)}", used_skus)
             variants.append(v)
 
