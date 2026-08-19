@@ -1,0 +1,129 @@
+{% extends "products/base.html" %}
+{% block title %}Crawl sản phẩm{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Crawl sản phẩm → CSV Shopify</h2>
+  <p class="tpl-meta">
+    AI đọc trang sản phẩm và tự trích xuất/soạn: tiêu đề, mô tả (giữ định
+    dạng HTML gốc), giá, ảnh, variant, SKU/barcode/khối lượng, và tự viết
+    thêm SEO title, SEO description, category, tags — sau đó xuất ra file
+    CSV đúng chuẩn import của Shopify. Ảnh dùng thẳng link gốc từ trang
+    crawl (không tải về). Mỗi trang sản phẩm tốn
+    <strong>{{ credits_per_page }} credit</strong> Firecrawl — kiểm tra
+    ước tính bên dưới trước khi bấm crawl.
+  </p>
+  <p class="tpl-meta"><a href="{% url 'crawl_gallery' %}">🗂️ Xem lịch sử crawl đã lưu →</a></p>
+
+  <form method="post" action="{% url 'crawl_studio' %}" id="crawl-form">
+    {% csrf_token %}
+
+    <label>Chế độ</label>
+    <div style="display:flex; gap:16px; margin:4px 0; flex-wrap:wrap;">
+      <label style="font-weight:400; margin:0; cursor:pointer; display:flex; align-items:center; gap:6px;">
+        <input type="radio" name="mode" value="single" id="mode-single" style="width:auto;" {% if mode == "single" or not mode %}checked{% endif %}>
+        1 sản phẩm
+      </label>
+      <label style="font-weight:400; margin:0; cursor:pointer; display:flex; align-items:center; gap:6px;">
+        <input type="radio" name="mode" value="urls" id="mode-urls" style="width:auto;" {% if mode == "urls" %}checked{% endif %}>
+        Danh sách nhiều URL
+      </label>
+      <label style="font-weight:400; margin:0; cursor:pointer; display:flex; align-items:center; gap:6px;">
+        <input type="radio" name="mode" value="category" id="mode-category" style="width:auto;" {% if mode == "category" %}checked{% endif %}>
+        Cả danh mục (tự tìm sản phẩm)
+      </label>
+    </div>
+
+    <div id="single-wrap">
+      <label for="source_url" id="source_url_label">URL sản phẩm</label>
+      <input type="text" name="source_url" id="source_url" placeholder="https://vidongcung.com/products/ten-san-pham" value="{{ source_url }}">
+      <p class="tpl-meta" id="source_url_hint">Dán đúng 1 link trang sản phẩm cụ thể — dùng khi bạn chỉ muốn lấy 1 sản phẩm.</p>
+      <div id="limit-wrap" style="display:none;">
+        <label for="limit">Giới hạn số trang tối đa</label>
+        <input type="number" name="limit" id="limit" min="1" max="{{ limit_max }}" value="{{ limit|default:default_limit }}" style="max-width:140px;">
+      </div>
+    </div>
+
+    <div id="urls-wrap" style="display:none;">
+      <label for="url_list">Danh sách URL sản phẩm</label>
+      <textarea name="url_list" id="url_list" rows="8" placeholder="https://vidongcung.com/products/san-pham-1&#10;https://vidongcung.com/products/san-pham-2&#10;...">{{ url_list }}</textarea>
+      <p class="tpl-meta">Mỗi URL sản phẩm 1 dòng (tối đa {{ max_batch_urls }} link/lần). Dùng khi bạn đã có sẵn danh sách link sản phẩm cụ thể (ví dụ copy từ trang nhà cung cấp) — chính xác và ít tốn credit hơn "Cả danh mục" vì không cần tự dò tìm link.</p>
+    </div>
+
+    <label for="vendor">Vendor</label>
+    <input type="text" name="vendor" id="vendor" placeholder="Tên nhà cung cấp / thương hiệu" value="{{ vendor }}" required>
+
+    <label for="quantity">Số lượng tồn kho (áp dụng cho mọi sản phẩm crawl được)</label>
+    <input type="number" name="quantity" id="quantity" min="0" value="{{ quantity|default:10 }}" style="max-width:140px;">
+
+    <p class="tpl-meta" style="margin-top:14px; font-weight:600;">Chi phí ước tính: <span id="cost-estimate">5 credit</span></p>
+
+    <button type="submit" class="btn-ai" id="crawl-submit-btn">Crawl ngay</button>
+  </form>
+</div>
+
+<script>
+  const modeSingle = document.getElementById('mode-single');
+  const modeUrls = document.getElementById('mode-urls');
+  const modeCategory = document.getElementById('mode-category');
+  const singleWrap = document.getElementById('single-wrap');
+  const urlsWrap = document.getElementById('urls-wrap');
+  const limitWrap = document.getElementById('limit-wrap');
+  const sourceUrlLabel = document.getElementById('source_url_label');
+  const sourceUrlHint = document.getElementById('source_url_hint');
+  const sourceUrlInput = document.getElementById('source_url');
+  const urlListInput = document.getElementById('url_list');
+  const limitInput = document.getElementById('limit');
+  const costEstimate = document.getElementById('cost-estimate');
+  const CREDITS_PER_PAGE = {{ credits_per_page }};
+
+  const CATEGORY_HINT = 'Dán link 1 trang danh mục/bộ sưu tập — hệ thống sẽ tự dò tìm các link sản phẩm hiện TRÊN ĐÚNG trang đó rồi crawl từng cái, không lan sang các trang phân trang khác. Muốn crawl 1 trang phân trang cụ thể thì dán thẳng kèm ?page=2 (ví dụ .../collections/ao-thun?page=2) — chỉ crawl đúng trang 2 đó. Dùng chế độ này khi bạn CHƯA biết danh sách link cụ thể, chỉ có link trang tổng. Tốn nhiều credit hơn vì crawl nhiều trang — luôn đặt giới hạn số trang thấp trước để thử.';
+  const SINGLE_HINT = 'Dán đúng 1 link trang sản phẩm cụ thể — dùng khi bạn chỉ muốn lấy 1 sản phẩm.';
+
+  function currentMode() {
+    if (modeUrls.checked) return 'urls';
+    if (modeCategory.checked) return 'category';
+    return 'single';
+  }
+
+  function syncModeUI() {
+    const mode = currentMode();
+    singleWrap.style.display = mode === 'urls' ? 'none' : '';
+    urlsWrap.style.display = mode === 'urls' ? '' : 'none';
+    limitWrap.style.display = mode === 'category' ? '' : 'none';
+    sourceUrlInput.required = mode !== 'urls';
+    sourceUrlLabel.textContent = mode === 'category' ? 'URL trang danh mục' : 'URL sản phẩm';
+    sourceUrlInput.placeholder = mode === 'category'
+      ? 'https://vidongcung.com/collections/ao-thun'
+      : 'https://vidongcung.com/products/ten-san-pham';
+    sourceUrlHint.textContent = mode === 'category' ? CATEGORY_HINT : SINGLE_HINT;
+
+    if (mode === 'urls') {
+      const count = urlListInput.value.split('\n').map((s) => s.trim()).filter((s) => s.startsWith('http')).length;
+      costEstimate.textContent = `${count * CREDITS_PER_PAGE} credit (${count} URL × ${CREDITS_PER_PAGE})`;
+    } else if (mode === 'category') {
+      const limit = Math.max(1, parseInt(limitInput.value, 10) || 1);
+      costEstimate.textContent = `tối đa ${limit * CREDITS_PER_PAGE} credit (${limit} trang × ${CREDITS_PER_PAGE})`;
+    } else {
+      costEstimate.textContent = `${CREDITS_PER_PAGE} credit`;
+    }
+  }
+  [modeSingle, modeUrls, modeCategory, limitInput, urlListInput].forEach((el) => el.addEventListener('input', syncModeUI));
+  syncModeUI();
+
+  const form = document.getElementById('crawl-form');
+  const submitBtn = document.getElementById('crawl-submit-btn');
+  let submitting = false;
+  form.addEventListener('submit', (e) => {
+    if (submitting) { e.preventDefault(); return; }
+    if (!confirm('Chi phí ước tính: ' + costEstimate.textContent + '. Tiếp tục crawl?')) {
+      e.preventDefault();
+      return;
+    }
+    submitting = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Đang crawl... có thể mất vài chục giây tới vài phút, vui lòng đợi';
+  });
+</script>
+
+{% endblock %}

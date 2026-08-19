@@ -1,0 +1,94 @@
+{% extends "products/base.html" %}
+{% block title %}Kết quả crawl #{{ job.id }}{% endblock %}
+{% block content %}
+
+<p><a href="{% url 'crawl_studio' %}" style="text-decoration:none; font-weight:600;">&larr; Crawl mới</a></p>
+<form id="csrf-form">{% csrf_token %}</form>
+
+<div class="card">
+  <h2>Kết quả crawl #{{ job.id }}</h2>
+  <p class="tpl-meta">
+    Nguồn: <a href="{{ job.source_url }}" target="_blank" rel="noopener">{{ job.source_url }}</a><br>
+    Chế độ: {{ job.get_mode_display }} · Vendor: <strong>{{ job.vendor }}</strong> ·
+    Số lượng/sp: {{ job.quantity }} · Đã dùng {{ job.credits_used }} credit ·
+    {{ products|length }} sản phẩm
+  </p>
+  <p class="tpl-meta">
+    Bỏ chọn sản phẩm nào bạn không muốn đưa vào file CSV, rồi bấm xuất.
+    Mô tả giữ nguyên bản gốc (dạng HTML) và ảnh dùng thẳng link gốc từ
+    trang crawl — kiểm tra kỹ trước khi đăng vì có thể vướng bản quyền.
+    SEO title/description, category và tags do AI tự soạn dựa trên nội
+    dung thật của sản phẩm.
+  </p>
+  <a href="{% url 'crawl_export_csv' job.id %}"><button type="button" class="btn-primary">⬇ Xuất CSV Shopify</button></a>
+</div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:16px;">
+  {% for p in products %}
+  <div class="card" style="padding:14px; margin-bottom:0;" data-product-card="{{ p.id }}">
+    <label style="font-weight:400; margin:0 0 8px; display:flex; align-items:center; gap:8px; cursor:pointer;">
+      <input type="checkbox" class="include-toggle" data-product-id="{{ p.id }}" {% if p.include_in_export %}checked{% endif %} style="width:auto;">
+      Đưa vào CSV
+    </label>
+    {% if p.thumb %}
+      <img src="{{ p.thumb }}" alt="{{ p.title }}" loading="lazy" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid var(--border);">
+    {% else %}
+      <div style="width:100%; aspect-ratio:1; border-radius:6px; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; color:var(--ink-faint); font-size:0.8rem;">Không có ảnh</div>
+    {% endif %}
+    <p style="font-weight:700; margin:8px 0 2px; font-size:0.92rem;">{{ p.title }}</p>
+    <p class="tpl-meta" style="margin:0 0 6px;">
+      {% if p.price %}${{ p.price }}{% endif %}
+      {% if p.compare_at_price %}<s style="opacity:0.6;">${{ p.compare_at_price }}</s>{% endif %}
+      {% if p.sku %}· SKU {{ p.sku }}{% endif %}
+      {% if p.barcode %}· Barcode {{ p.barcode }}{% endif %}
+      {% if p.images|length > 1 %}· {{ p.images|length }} ảnh{% endif %}
+      {% if p.variants %}· {{ p.variants|length }} variant{% endif %}
+    </p>
+    {% if p.product_category or p.product_type %}
+      <p class="tpl-meta" style="margin:0 0 4px;">
+        {% if p.product_category %}<span class="badge">{{ p.product_category }}</span>{% endif %}
+        {% if p.product_type %}· {{ p.product_type }}{% endif %}
+      </p>
+    {% endif %}
+    {% if p.tags %}
+      <p class="tpl-meta" style="margin:0 0 6px;">🏷️ {{ p.tags|join:", " }}</p>
+    {% endif %}
+    <div class="tpl-meta product-description" style="max-height:110px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; padding:6px 8px; margin-bottom:6px;">{{ p.description|safe }}</div>
+    {% if p.seo_title or p.seo_description %}
+      <p class="tpl-meta" style="margin:0 0 4px;"><strong>SEO:</strong> {{ p.seo_title }}</p>
+      <p class="tpl-meta" style="margin:0 0 6px;">{{ p.seo_description }}</p>
+    {% endif %}
+    <a href="{{ p.source_url }}" target="_blank" rel="noopener" class="tpl-meta">Xem trang gốc →</a>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+  document.querySelectorAll('.include-toggle').forEach((cb) => {
+    cb.addEventListener('change', async () => {
+      const productId = cb.dataset.productId;
+      cb.disabled = true;
+      try {
+        const res = await fetch(`/crawl/product/${productId}/toggle/`, {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': document.querySelector('#csrf-form [name=csrfmiddlewaretoken]').value,
+          },
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          alert('Lỗi: ' + (data.error || 'không rõ nguyên nhân'));
+          cb.checked = !cb.checked;
+        }
+      } catch (err) {
+        alert('Lỗi kết nối: ' + err);
+        cb.checked = !cb.checked;
+      } finally {
+        cb.disabled = false;
+      }
+    });
+  });
+</script>
+
+{% endblock %}

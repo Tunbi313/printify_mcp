@@ -1,0 +1,85 @@
+{% extends "products/base.html" %}
+{% block title %}Lịch sử crawl{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Lịch sử crawl sản phẩm</h2>
+  <p class="tpl-meta">
+    Tất cả lần crawl đã chạy, mới nhất trước. Bấm vào để xem lại/xuất CSV.
+    <a href="{% url 'crawl_studio' %}">+ Crawl mới</a>
+  </p>
+
+  <div id="empty-msg" class="tpl-meta" style="{% if jobs %}display:none;{% endif %}">Chưa crawl lần nào.</div>
+
+  <div id="jobs-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:16px; margin-top:16px;">
+    {% for job in jobs %}
+    <div class="card" style="padding:14px; margin-bottom:0;" data-job-card="{{ job.id }}">
+      <p style="font-weight:700; margin:0 0 4px; font-size:0.9rem; word-break:break-all;">
+        <a href="{% url 'crawl_detail' job.id %}" style="text-decoration:none;">{{ job.source_url|truncatechars:60 }}</a>
+      </p>
+      <p class="tpl-meta" style="margin:0 0 8px;">
+        <span class="badge">{{ job.get_mode_display }}</span>
+        · {{ job.product_count }} sản phẩm · {{ job.credits_used }} credit
+        {% if job.vendor %}· {{ job.vendor }}{% endif %}
+      </p>
+      <p class="tpl-meta" style="margin:0 0 10px;">{{ job.created_at|date:"d/m/Y H:i" }}</p>
+      <div style="display:flex; gap:6px;">
+        <a href="{% url 'crawl_detail' job.id %}" style="flex:1;"><button type="button" class="btn-secondary" style="width:100%; padding:6px; font-size:0.8rem;">Xem</button></a>
+        <a href="{% url 'crawl_export_csv' job.id %}" style="flex:1;"><button type="button" class="btn-secondary" style="width:100%; padding:6px; font-size:0.8rem;">CSV</button></a>
+        <form method="post" action="{% url 'crawl_delete' job.id %}" class="ajax-delete-form" data-confirm="Xóa lần crawl này?" style="flex:1;">
+          {% csrf_token %}
+          <button type="submit" class="btn-delete" style="width:100%; padding:6px; font-size:0.8rem;">Xóa</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.ajax-delete-form').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (form.dataset.busy) return;
+      if (!confirm(form.dataset.confirm)) return;
+
+      form.dataset.busy = '1';
+      const btn = form.querySelector('button[type=submit]');
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Đang xóa...';
+
+      try {
+        const res = await fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        const data = await res.json();
+        if (data.ok) {
+          const card = form.closest('[data-job-card]');
+          card.style.transition = 'opacity 0.25s';
+          card.style.opacity = '0';
+          setTimeout(() => {
+            card.remove();
+            if (!document.querySelector('[data-job-card]')) {
+              document.getElementById('empty-msg').style.display = '';
+            }
+          }, 250);
+        } else {
+          alert('Lỗi: ' + (data.error || 'không rõ nguyên nhân'));
+          btn.disabled = false;
+          btn.textContent = originalText;
+          delete form.dataset.busy;
+        }
+      } catch (err) {
+        alert('Lỗi kết nối: ' + err);
+        btn.disabled = false;
+        btn.textContent = originalText;
+        delete form.dataset.busy;
+      }
+    });
+  });
+</script>
+
+{% endblock %}

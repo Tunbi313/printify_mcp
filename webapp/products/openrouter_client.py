@@ -48,6 +48,29 @@ def vision_chat(image_data_url: str, prompt: str, max_tokens: int = 200) -> str:
         return data["choices"][0]["message"]["content"].strip()
 
 
+def text_chat(prompt: str, max_tokens: int = 200) -> str:
+    """Send a plain text-only prompt to the configured model, return the
+    plain text response. Used for text classification/picking tasks that
+    don't need vision (e.g. matching a product to a taxonomy category)."""
+    _check_key()
+    model = os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+    }
+    headers = {
+        "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(timeout=60) as client:
+        r = client.post(f"{API_BASE}/chat/completions", headers=headers, json=payload)
+        if r.is_error:
+            raise RuntimeError(f"OpenRouter {r.status_code}: {r.text[:500]}")
+        data = r.json()
+        return (data["choices"][0]["message"]["content"] or "").strip()
+
+
 def vision_chat_multi(image_urls: list[str], prompt: str, max_tokens: int = 200) -> str:
     """Send multiple images (already-hosted URLs, e.g. a product's several
     mockup angles) + one text prompt to a vision-capable model, so it can

@@ -3,6 +3,7 @@ import io
 import json
 import re
 import uuid
+from decimal import Decimal, InvalidOperation
 
 from PIL import Image
 
@@ -11,8 +12,8 @@ from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
-from django.http import JsonResponse
-from django.shortcuts import render, redirect
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 
@@ -50,9 +51,12 @@ def set_shop(request):
 from . import fal_studio
 from . import fal_upscale
 from . import fal_video
+from . import firecrawl_client
 from . import openrouter_client
 from . import printify_client as pc
-from .models import AiMockup, AiVideo
+from . import shopify_csv
+from . import shopify_taxonomy
+from .models import AiMockup, AiVideo, CrawledProduct, CrawlJob
 from .templates_catalog import TEMPLATES
 
 GENERIC_FILENAME_WORDS = {
@@ -1312,3 +1316,262 @@ def delete_product(request, product_id):
         messages.error(request, f"Lỗi khi xóa: {exc}")
         return redirect(next_url) if next_url else redirect("product_detail", product_id=product_id)
     return redirect(next_url) if next_url else redirect("library_page")
+
+
+def _safe_decimal(value):
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _slugify_sku(text: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9]+", "-", (text or "").upper()).strip("-")
+    return re.sub(r"-{2,}", "-", text)[:40]
+
+
+def _vendor_sku_prefix(vendor: str) -> str:
+    letters = re.sub(r"[^A-Za-z0-9]", "", vendor or "").upper()
+    return letters[:6] or "SKU"
+
+
+def _unique_sku(candidate: str, used: set) -> str:
+    """Guarantee SKU uniqueness across the whole store (not just this
+    crawl job) — AI-composed SKUs for two different products can
+    coincidentally collide, and Shopify inventory tracking breaks if two
+    variants share a SKU."""
+    base = candidate or "ITEM"
+    sku = base
+    n = 2
+    while sku in used:
+        sku = f"{base}-{n}"
+        n += 1
+    used.add(sku)
+    return sku
+
+
+def _existing_skus() -> set:
+    used = set()
+    for sku, variants in CrawledProduct.objects.values_list("sku", "variants"):
+        if sku:
+            used.add(sku)
+        for v in (variants or []):
+            if isinstance(v, dict) and v.get("sku"):
+                used.add(v["sku"])
+    return used
+
+
+def _real_compare_at_price(price, compare_at_price):
+    """Many source pages always emit a "compare at"/"regular price" field
+    in their JSON-LD even when nothing is on sale, so the AI faithfully
+    extracts it even when it's identical to (or lower than) the actual
+    price — telling the model to "omit if not on sale" isn't reliable
+    enough on its own. A compare-at price only means anything if it's
+    strictly higher than the selling price; otherwise it's not a real
+    discount and would just show a fake/zero "% off" badge on Shopify."""
+    if compare_at_price is None or price is None or compare_at_price <= price:
+        return None
+    return compare_at_price
+
+
+def _dedupe_repeated_text(text: str) -> str:
+    """Some product pages print the description twice in the raw HTML
+    (once as visible copy, once in schema.org/JSON-LD metadata), and the
+    extraction model concatenates both — often with the first copy cut
+    short mid-word where the page truncated it. Detect an exact repeat
+    of an early chunk and keep whichever half is longer/more complete."""
+    text = (text or "").strip()
+    if len(text) < 200:
+        return text
+    probe = text[:60]
+    second = text.find(probe, 60)
+    if second == -1:
+        return text
+    before, after = text[:second].rstrip(), text[second:].rstrip()
+    return after if len(after) > len(before) else before
+
+
+CRAWL_LIMIT_MAX = 100
+
+
+def _parse_url_list(raw: str) -> list[str]:
+    urls = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if line and line.startswith(("http://", "https://")) and line not in urls:
+            urls.append(line)
+    return urls[:firecrawl_client.MAX_BATCH_URLS]
+
+
+def crawl_studio(request):
+    context = {
+        "credits_per_page": firecrawl_client.CREDITS_PER_PAGE,
+        "limit_max": CRAWL_LIMIT_MAX,
+        "max_batch_urls": firecrawl_client.MAX_BATCH_URLS,
+        "default_limit": 20,
+    }
+    if request.method != "POST":
+        return render(request, "products/crawl_studio.html", context)
+
+    mode = request.POST.get("mode", "single")
+    if mode not in ("single", "category", "urls"):
+        mode = "single"
+    source_url = request.POST.get("source_url", "").strip()
+    url_list_raw = request.POST.get("url_list", "").strip()
+    try:
+        limit = int(request.POST.get("limit", 20))
+    except ValueError:
+        limit = 20
+    limit = max(1, min(limit, CRAWL_LIMIT_MAX))
+    vendor = request.POST.get("vendor", "").strip()
+    try:
+        quantity = max(0, int(request.POST.get("quantity", 0)))
+    except ValueError:
+        quantity = 0
+
+    context.update({
+        "source_url": source_url, "url_list": url_list_raw, "mode": mode, "limit": limit,
+        "vendor": vendor, "quantity": quantity,
+    })
+
+    urls = _parse_url_list(url_list_raw) if mode == "urls" else []
+    if mode == "urls" and not urls:
+        messages.error(request, "Bạn chưa dán URL nào (mỗi URL 1 dòng).")
+        return render(request, "products/crawl_studio.html", context)
+    if mode != "urls" and not source_url:
+        messages.error(request, "Bạn chưa nhập URL.")
+        return render(request, "products/crawl_studio.html", context)
+    if not vendor:
+        messages.error(request, "Bạn chưa nhập Vendor.")
+        return render(request, "products/crawl_studio.html", context)
+
+    job_source_url = ", ".join(urls[:3]) + ("…" if len(urls) > 3 else "") if mode == "urls" else source_url
+
+    try:
+        if mode == "category":
+            result = firecrawl_client.crawl_category_page(source_url, limit)
+        elif mode == "urls":
+            result = firecrawl_client.batch_scrape_products(urls)
+        else:
+            result = firecrawl_client.scrape_product(source_url)
+    except Exception as exc:
+        messages.error(request, f"Lỗi khi crawl: {exc}")
+        return render(request, "products/crawl_studio.html", context)
+
+    products = result.get("products") or []
+    if not products:
+        messages.error(request, "Không trích xuất được sản phẩm nào từ (các) URL này.")
+        return render(request, "products/crawl_studio.html", context)
+
+    job = CrawlJob.objects.create(
+        source_url=job_source_url[:1000], mode=mode, vendor=vendor, quantity=quantity,
+        credits_used=result.get("credits_used", 0),
+    )
+    used_skus = _existing_skus()
+    vendor_prefix = _vendor_sku_prefix(vendor)
+    for p in products:
+        extracted = p["extracted"]
+        title = (extracted.get("title") or "")[:500]
+        product_type = (extracted.get("product_type") or "")[:255]
+        # The AI's raw category guess is often a plausible-looking but
+        # non-existent taxonomy path (Shopify silently drops anything
+        # that doesn't exactly match its Standard Product Taxonomy on
+        # import) — snap it to a real one before saving.
+        try:
+            real_category = shopify_taxonomy.pick_category(
+                title, product_type, extracted.get("product_category") or "",
+            )
+        except Exception:
+            real_category = ""
+        price = _safe_decimal(extracted.get("price"))
+        compare_at_price = _real_compare_at_price(
+            price, _safe_decimal(extracted.get("compare_at_price") or None),
+        )
+
+        # AI composes a SKU when the source page has none; guarantee it's
+        # actually unique store-wide (across every past crawl too) and
+        # prefix it with the vendor so it reads like a real internal code.
+        product_sku = _unique_sku(
+            f"{vendor_prefix}-{_slugify_sku(extracted.get('sku') or title)}", used_skus,
+        )
+        variants = []
+        for v in (extracted.get("variants") or []):
+            v = dict(v)
+            fallback = v.get("sku") or f"{title} {v.get('option1_value', '')} {v.get('option2_value', '')}"
+            v["sku"] = _unique_sku(f"{vendor_prefix}-{_slugify_sku(fallback)}", used_skus)
+            variants.append(v)
+
+        CrawledProduct.objects.create(
+            job=job,
+            source_url=p["source_url"],
+            title=title,
+            description=_dedupe_repeated_text(extracted.get("description_html")),
+            price=price,
+            compare_at_price=compare_at_price,
+            sku=product_sku[:255],
+            barcode=(extracted.get("barcode") or "")[:255],
+            weight_grams=_safe_decimal(extracted.get("weight_grams") or None),
+            seo_title=(extracted.get("seo_title") or "")[:255],
+            seo_description=(extracted.get("seo_description") or "")[:500],
+            product_category=real_category[:255],
+            product_type=product_type,
+            tags=extracted.get("tags") or [],
+            images=extracted.get("images") or [],
+            variants=variants,
+        )
+
+    messages.success(
+        request,
+        f"Đã crawl {len(products)} sản phẩm — dùng {result.get('credits_used', 0)} credit.",
+    )
+    return redirect("crawl_detail", job_id=job.id)
+
+
+def crawl_detail(request, job_id):
+    job = get_object_or_404(CrawlJob, id=job_id)
+    return render(request, "products/crawl_detail.html", {"job": job, "products": job.products.all()})
+
+
+def crawl_toggle_product(request, product_id):
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "Method not allowed"}, status=405)
+    try:
+        product = CrawledProduct.objects.get(id=product_id)
+    except CrawledProduct.DoesNotExist:
+        return JsonResponse({"ok": False, "error": "Không tìm thấy."}, status=404)
+    product.include_in_export = not product.include_in_export
+    product.save(update_fields=["include_in_export"])
+    return JsonResponse({"ok": True, "include_in_export": product.include_in_export})
+
+
+def crawl_export_csv(request, job_id):
+    job = get_object_or_404(CrawlJob, id=job_id)
+    csv_content = shopify_csv.build_shopify_csv(job)
+    response = HttpResponse(csv_content, content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="shopify_import_{job.id}.csv"'
+    return response
+
+
+def crawl_gallery(request):
+    jobs = CrawlJob.objects.all()[:100]
+    return render(request, "products/crawl_gallery.html", {"jobs": jobs, "active_tab": "crawl"})
+
+
+def crawl_delete(request, job_id):
+    if request.method != "POST":
+        return redirect("crawl_gallery")
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    try:
+        job = CrawlJob.objects.get(id=job_id)
+    except CrawlJob.DoesNotExist:
+        if is_ajax:
+            return JsonResponse({"ok": False, "error": "Không tìm thấy."}, status=404)
+        messages.error(request, "Không tìm thấy.")
+        return redirect("crawl_gallery")
+    job.delete()
+    if is_ajax:
+        return JsonResponse({"ok": True})
+    messages.success(request, "Đã xóa job crawl.")
+    return redirect("crawl_gallery")

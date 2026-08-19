@@ -307,6 +307,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18 9l-4.1 1.4L12 15l-1.9-4.6L6 9l4.1-1.4L12 3z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
           AI Studio
         </a>
+        <a class="nav-item ai {% if url_name == 'crawl_studio' or url_name == 'crawl_detail' or url_name == 'crawl_gallery' %}active{% endif %}" href="{% url 'crawl_studio' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          Crawl sản phẩm
+        </a>
       </nav>
 
       <nav class="nav-group">
