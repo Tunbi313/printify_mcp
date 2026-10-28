@@ -1,0 +1,500 @@
+{% extends "products/base.html" %}
+{% block title %}Collection → CSV{% endblock %}
+{% block content %}
+
+<p><a href="{% url 'crawl_studio' %}" style="text-decoration:none; font-weight:600;">&larr; Crawl sản phẩm đầy đủ</a></p>
+
+<div class="card">
+  <h2>Collection/Search/Marketplace → CSV title, giá và ảnh</h2>
+  <p class="tpl-meta">
+    Công cụ này tự đi theo toàn bộ link phân trang thật của collection hoặc
+    tự cuộn đến cuối trang search infinite-scroll
+    (<code>page_num</code>, <code>page</code>, cursor hoặc offset), gom các
+    link sản phẩm phổ biến như <code>/products/</code>, <code>/product/</code>,
+    Amazon <code>/dp/ASIN</code>, eBay <code>/itm/</code>, Walmart <code>/ip/</code>
+    hoặc AliExpress <code>/item/</code>, rồi crawl từng sản phẩm. File CSV khớp
+    mẫu với các cột
+    <strong>title, price, compare_at_price, product_url, image_count,
+    image_1...image_10</strong> (và tự thêm image_11... nếu cần). Không tạo
+    SEO, category, tags, variants và không lưu sản phẩm vào thư viện.
+  </p>
+  <p class="tpl-meta">
+    Với trang search tương thích, hệ thống ưu tiên gọi thẳng API infinite-scroll
+    theo thứ tự ổn định. Nếu storefront bật lớp Security Checking, cùng API đó
+    được gọi trong một phiên trình duyệt Firecrawl (1 credit), không cuộn mù qua
+    các thẻ sản phẩm. Với ShopBase, Catalogue API còn lấy luôn title, giá và 1–2
+    ảnh card để xuất CSV nhanh; chỉ chế độ toàn bộ gallery mới cần đọc từng trang
+    sản phẩm. Hệ thống ưu tiên nguồn dữ
+    liệu đầy đủ của nền tảng như Shopify product JSON hoặc storefront hydration
+    bằng 10 kết nối song song. JSON-LD chỉ có ảnh đại diện không còn được xem là
+    gallery đầy đủ. Với trang mơ hồ hoặc bị chặn, Firecrawl mở trang và bộ đọc
+    đa tầng lấy Shopify, Etsy, Amazon dynamic images, srcset lớn nhất cùng các
+    gallery DOM phổ biến (1 credit/trang), không dùng JSON extraction 5 credit/trang.
+  </p>
+</div>
+
+{% if scan_job_started %}
+<div class="card" id="scan-job-card">
+  <h3>Đang tìm toàn bộ sản phẩm</h3>
+  <p class="tpl-meta">
+    Công việc chạy ở nền nên trang không bị treo. Thanh dưới đây cập nhật theo từng
+    trang Catalogue API đã đọc và từng sản phẩm đã nhận được.
+  </p>
+  <div style="height:12px; background:var(--border); border-radius:999px; overflow:hidden; margin:16px 0 9px;">
+    <div id="scan-job-progress" style="height:100%; width:0; background:var(--rust); transition:width .25s ease;"></div>
+  </div>
+  <p id="scan-job-status" style="font-weight:700; margin-bottom:5px;">Đang khởi tạo bộ quét...</p>
+  <p id="scan-job-detail" class="tpl-meta">Đang chờ storefront trả về tổng số sản phẩm.</p>
+  <a id="scan-job-retry" href="{% url 'collection_csv' %}" style="display:none;">← Quay lại và thử lại</a>
+</div>
+
+<script>
+  (() => {
+    const token = '{{ scan_job_token|escapejs }}';
+    const statusUrl = '{% url "collection_csv_scan_status" %}?token=' + encodeURIComponent(token);
+    const statusText = document.getElementById('scan-job-status');
+    const detailText = document.getElementById('scan-job-detail');
+    const progress = document.getElementById('scan-job-progress');
+    const retryLink = document.getElementById('scan-job-retry');
+    let stopped = false;
+
+    const number = value => Number(value || 0).toLocaleString('vi-VN');
+
+    async function poll() {
+      if (stopped) return;
+      try {
+        const response = await fetch(statusUrl, {
+          headers: {'X-Requested-With': 'XMLHttpRequest'},
+          cache: 'no-store'
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || 'Không đọc được tiến độ quét.');
+
+        const percent = Math.max(0, Math.min(100, Number(data.percent || 0)));
+        progress.style.width = percent + '%';
+        statusText.textContent = data.message || 'Đang quét collection...';
+        if (data.total) {
+          detailText.textContent = `Đã nhận ${number(data.completed)}/${number(data.total)} sản phẩm · ${number(data.pages_completed)}/${number(data.pages_total)} trang (${percent}%).`;
+        } else if (data.pages_total) {
+          detailText.textContent = `Đã đọc ${number(data.pages_completed)}/${number(data.pages_total)} trang (${percent}%).`;
+        } else {
+          detailText.textContent = 'Đang kết nối và đọc tổng số sản phẩm từ storefront...';
+        }
+
+        if (data.status === 'completed') {
+          stopped = true;
+          progress.style.width = '100%';
+          window.setTimeout(() => window.location.assign(data.result_url), 350);
+          return;
+        }
+        if (data.status === 'failed') {
+          stopped = true;
+          statusText.textContent = data.message || 'Không quét được collection.';
+          detailText.textContent = data.error || 'Vui lòng kiểm tra URL rồi thử lại.';
+          retryLink.style.display = 'inline-block';
+          return;
+        }
+      } catch (error) {
+        statusText.textContent = 'Tạm thời chưa đọc được tiến độ: ' + error.message;
+        detailText.textContent = 'Hệ thống sẽ tự thử lại.';
+      }
+      window.setTimeout(poll, 1000);
+    }
+    poll();
+  })();
+</script>
+{% elif job_started %}
+<div class="card" id="job-card">
+  <h3>Đang hoàn thiện {{ requested }} sản phẩm</h3>
+  <p class="tpl-meta">
+    Fast path đã lấy được <strong>{{ fast_count }}</strong> sản phẩm. Firecrawl
+    chỉ đang bổ sung <strong>{{ fallback_requested }}</strong> sản phẩm còn thiếu
+    ở nền. Tiến độ được kiểm tra mỗi 3 giây nên request Django không bị treo chờ.
+    {% if invalid_url_count %}Có {{ invalid_url_count }} URL không hợp lệ đã bị bỏ qua.{% endif %}
+  </p>
+  <div style="height:10px; background:var(--border); border-radius:999px; overflow:hidden; margin:14px 0 8px;">
+    <div id="job-progress" style="height:100%; width:0; background:var(--rust); transition:width .25s ease;"></div>
+  </div>
+  <p id="job-status" style="font-weight:600;">Đang khởi tạo batch...</p>
+  <a id="download-link" href="#" style="display:none;"><button type="button" class="btn-primary">⬇ Tải CSV</button></a>
+</div>
+
+<script>
+  (() => {
+    const token = '{{ job_token|escapejs }}';
+    const statusUrl = '{% url "collection_csv_status" %}?token=' + encodeURIComponent(token);
+    const downloadUrl = '{% url "collection_csv_download" %}?token=' + encodeURIComponent(token);
+    const statusText = document.getElementById('job-status');
+    const progress = document.getElementById('job-progress');
+    const downloadLink = document.getElementById('download-link');
+    const overallTotal = {{ requested }};
+    const fastCount = {{ fast_count }};
+    const fallbackRequested = {{ fallback_requested }};
+    let stopped = false;
+
+    async function poll() {
+      if (stopped) return;
+      try {
+        const response = await fetch(statusUrl, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || 'Không đọc được trạng thái batch.');
+
+        const fallbackTotal = data.total || fallbackRequested;
+        const fallbackCompleted = Math.min(data.completed || 0, fallbackTotal);
+        const completed = Math.min(fastCount + fallbackCompleted, overallTotal);
+        const percent = overallTotal ? Math.round((completed / overallTotal) * 100) : 0;
+        progress.style.width = percent + '%';
+
+        if (data.status === 'completed') {
+          stopped = true;
+          progress.style.width = '100%';
+          statusText.textContent = `Hoàn tất ${overallTotal} sản phẩm · ${data.credits_used || 0} credit fallback. CSV đã sẵn sàng.`;
+          downloadLink.href = downloadUrl;
+          downloadLink.style.display = 'inline-block';
+          return;
+        }
+        if (data.status === 'failed' || data.status === 'cancelled') {
+          stopped = true;
+          statusText.textContent = 'Batch kết thúc với trạng thái: ' + data.status;
+          return;
+        }
+        statusText.textContent = `Đã có ${completed}/${overallTotal} sản phẩm; Firecrawl đang bổ sung ${fallbackCompleted}/${fallbackTotal} (${percent}%)...`;
+      } catch (error) {
+        statusText.textContent = 'Chưa đọc được tiến độ: ' + error.message + ' — sẽ thử lại.';
+      }
+      setTimeout(poll, 3000);
+    }
+    poll();
+  })();
+</script>
+{% else %}
+<div class="card">
+  <h3>Bước 1 — Tìm toàn bộ sản phẩm</h3>
+  <form method="post" action="{% url 'collection_csv' %}" id="collection-scan-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="scan">
+    <label for="collection_url">URL collection hoặc search</label>
+    <input
+      type="url"
+      name="collection_url"
+      id="collection_url"
+      placeholder="https://example.com/collections/ten-collection hoặc /search?q=..."
+      value="{{ collection_url }}"
+      required
+    >
+    <p class="tpl-meta">
+      Hệ thống bắt đầu lại từ đầu, tự nhận diện phân trang thường hoặc
+      infinite-scroll. Giới hạn an toàn: {{ max_collection_pages }} trang
+      hoặc {{ max_collection_products }} sản phẩm.
+    </p>
+    <p style="font-weight:700; margin-bottom:8px;">Chọn đúng nền tảng để quét nhanh:</p>
+    <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; max-width:760px;">
+      <button type="submit" class="btn-ai platform-scan-submit" name="platform" value="shopify">
+        Quét Shopify
+      </button>
+      <button type="submit" class="btn-primary platform-scan-submit" name="platform" value="shopbase">
+        Quét ShopBase
+      </button>
+      <button type="submit" class="btn-ai platform-scan-submit" name="platform" value="woocommerce">
+        Quét WooCommerce
+      </button>
+    </div>
+    <p class="tpl-meta" style="margin:10px 0 6px;">
+      Shopify dùng collection products API. ShopBase dùng Catalogue API và fast path hydration.
+      WooCommerce dùng Store API, hỗ trợ cả <code>/shop/</code>, <code>/product-category/...</code>
+      và <code>?filter_category=...</code>.
+    </p>
+    <button type="submit" class="platform-scan-submit" name="platform" value="auto">
+      Nền tảng khác — tự nhận diện
+    </button>
+  </form>
+</div>
+
+{% if scan %}
+<div class="card">
+  <h3>Bước 2 — Xác nhận batch sản phẩm</h3>
+  <p>
+    Tìm thấy <strong>{{ scan.product_count }} sản phẩm</strong>
+    {% if scan.platform == "shopify" %}
+      bằng chế độ <strong>Shopify</strong>.
+    {% elif scan.platform == "shopbase" %}
+      bằng chế độ <strong>ShopBase</strong>.
+    {% elif scan.platform == "woocommerce" %}
+      bằng chế độ <strong>WooCommerce</strong>.
+    {% endif %}
+    {% if scan.discovery_mode == "printerval_search" %}
+      sau <strong>{{ scan.pages_scanned }} trang Printerval</strong> (đã cuộn đủ từng trang và đi theo nút Next).
+      {% if scan.advertised_count %}Trang nguồn công bố {{ scan.advertised_count }} sản phẩm và hệ thống đã đối chiếu theo product ID.{% endif %}
+    {% elif scan.discovery_mode == "wordpress_search" %}
+      sau <strong>{{ scan.pages_scanned }} trang WordPress/WooCommerce</strong>.
+      {% if scan.advertised_count %}Trang nguồn công bố {{ scan.advertised_count }} sản phẩm và hệ thống đã đối chiếu đủ URL duy nhất.{% endif %}
+    {% elif scan.discovery_mode == "woocommerce_store_api" %}
+      {% if scan.skipped_no_image_count %}<strong>Đã bỏ qua {{ scan.skipped_no_image_count }} sản phẩm có trường ảnh rỗng</strong>; các sản phẩm này không được đưa vào CSV và không chạy Firecrawl fallback.{% endif %}
+      qua <strong>{{ scan.pages_scanned }} batch WooCommerce Store API</strong> chạy song song.
+      {% if scan.advertised_count %}WooCommerce công bố {{ scan.advertised_count }} sản phẩm và hệ thống đã đối chiếu đủ ID duy nhất.{% endif %}
+      Không dùng Firecrawl credit. Store API đã cung cấp toàn bộ gallery; chế độ ảnh collection
+      chỉ lấy 1–2 ảnh đầu, còn chế độ toàn bộ ảnh giữ nguyên cả gallery.
+    {% elif scan.discovery_mode == "shopbase_collection_api" %}
+      qua <strong>{{ scan.pages_scanned }} batch ShopBase Catalogue API</strong> chạy song song.
+      {% if scan.advertised_count %}ShopBase công bố {{ scan.advertised_count }} sản phẩm và hệ thống đã đối chiếu đủ product handle duy nhất.{% endif %}
+      API này lấy nhanh title, giá và 1–2 ảnh card. Chế độ toàn bộ ảnh sẽ mở từng trang sản phẩm để lấy đủ gallery.
+    {% elif scan.discovery_mode == "collection_load_more" %}
+      sau <strong>{{ scan.scroll_rounds }} lượt Load more</strong>.
+      {% if scan.advertised_count %}Trang nguồn công bố {{ scan.advertised_count }} sản phẩm.{% endif %}
+    {% elif scan.discovery_mode == "sfcc_search" %}
+      qua <strong>{{ scan.pages_scanned }} batch product-grid SFCC</strong>.
+      {% if scan.advertised_count %}Trang nguồn công bố {{ scan.advertised_count }} sản phẩm và hệ thống đã đối chiếu đủ URL duy nhất.{% endif %}
+      {% if scan.recovery_passes %}Đã tự chạy thêm một vòng Load more và hợp nhất URL vì thứ tự kết quả nguồn thay đổi giữa các request.{% endif %}
+    {% elif scan.discovery_mode == "search_api" %}
+      qua <strong>{{ scan.pages_scanned }} batch API infinite-scroll</strong>.
+      {% if scan.advertised_count %}Trang nguồn công bố {{ scan.advertised_count }} bản ghi và hệ thống đã đối chiếu đủ product ID.{% endif %}
+      {% if scan.duplicate_url_count %}Có {{ scan.duplicate_url_count }} bản ghi trùng URL sản phẩm nên CSV giữ {{ scan.product_count }} URL duy nhất.{% endif %}
+      {% if scan.recovery_passes %}Đã tự quét lại phân trang {{ scan.recovery_passes }} lần để loại lỗi lặp product ID ở ranh giới trang.{% endif %}
+      {% if scan.collection_images_available %}API đã kèm đủ title, giá và ảnh card nên có thể xuất ngay bằng chế độ “Ảnh trên collection”.{% endif %}
+    {% elif scan.discovery_mode == "shopify_search_html" %}
+      qua <strong>{{ scan.pages_scanned }} trang Shopify search</strong>.
+      {% if scan.advertised_count %}Trang nguồn công bố {{ scan.advertised_count }} sản phẩm và hệ thống đã đối chiếu đủ URL duy nhất.{% endif %}
+      Không dùng Firecrawl credit.
+    {% elif scan.discovery_mode == "pumpbear_search_html" %}
+      qua <strong>{{ scan.pages_scanned }} trang PumpBear mới</strong> trong một phiên trình duyệt.
+      {% if scan.advertised_count %}PumpBear công bố {{ scan.advertised_count }} sản phẩm và hệ thống đã đối chiếu đủ URL duy nhất.{% endif %}
+      Dữ liệu card được lấy kèm để có thể xuất nhanh 1–2 ảnh mà không mở từng sản phẩm.
+    {% elif scan.discovery_mode == "infinite_scroll" %}
+      sau <strong>{{ scan.scroll_rounds }} lượt cuộn infinite-scroll</strong>.
+      {% if scan.advertised_count %}Trang nguồn công bố {{ scan.advertised_count }} sản phẩm.{% endif %}
+    {% else %}
+      sau khi quét <strong>{{ scan.pages_scanned }} trang collection</strong>.
+    {% endif %}
+  </p>
+  <p class="tpl-meta">
+    Đã dùng {{ scan.scan_credits }} credit để tìm link.
+    {% if scan.full_gallery_available %}
+      Storefront đã trả về title, giá và toàn bộ gallery của đủ {{ scan.product_count }} sản phẩm;
+      cả hai chế độ ảnh đều không dùng thêm Firecrawl credit.
+    {% else %}
+      Fast path sản phẩm không dùng thêm Firecrawl credit. Browser scrape 1-credit
+      chỉ chạy cho URL mà fast path không đọc được; trường hợp xấu nhất dùng tối đa
+      <strong>{{ scan.extract_credits }} credit</strong>
+      ({{ scan.fallback_product_count|default:scan.product_count }} URL cần fallback × {{ credits_per_product }}).
+    {% endif %}
+  </p>
+  {% if scan.truncated %}
+  <p style="color:var(--danger, #b42318); font-weight:600;">
+    Đã chạm giới hạn an toàn; collection có thể vẫn còn sản phẩm chưa được gom.
+  </p>
+  {% endif %}
+  <form method="post" action="{% url 'collection_csv' %}" id="collection-start-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="start">
+    <input type="hidden" name="scan_token" value="{{ scan_token }}">
+    <input type="hidden" name="detail_progress_id" value="{{ detail_progress_id }}">
+    <input type="hidden" name="detail_progress_token" value="{{ detail_progress_token }}">
+    <fieldset style="border:1px solid var(--border); border-radius:10px; padding:14px; margin:16px 0;">
+      <legend style="font-weight:700; padding:0 7px;">Chọn nguồn ảnh xuất CSV</legend>
+      <label style="display:block; margin-bottom:12px; {% if not scan.collection_images_available %}opacity:.55;{% endif %}">
+        <input
+          type="radio"
+          name="image_mode"
+          value="collection_images"
+          {% if scan.collection_images_available and not scan.full_gallery_available %}checked{% elif not scan.collection_images_available %}disabled{% endif %}
+        >
+        <strong>Ảnh trên collection — nhanh nhất</strong><br>
+        <span class="tpl-meta" style="margin-left:24px;">
+          Xuất title, giá và tối đa 1–2 ảnh đang hiển thị trên card; không mở từng trang sản phẩm.
+          {% if not scan.collection_images_available %}Storefront này chưa cung cấp đủ dữ liệu card cho chế độ này.{% endif %}
+          {% if scan.collection_images_available and scan.card_no_image_count %}
+            Có {{ scan.card_no_image_count }} sản phẩm ShopBase không có ảnh card; các dòng đó vẫn được xuất với <code>image_count=0</code>.
+          {% endif %}
+        </span>
+      </label>
+      <label style="display:block;">
+        <input
+          type="radio"
+          name="image_mode"
+          value="full_gallery"
+          {% if scan.full_gallery_available or not scan.collection_images_available %}checked{% endif %}
+        >
+        <strong>Toàn bộ ảnh sản phẩm</strong><br>
+        <span class="tpl-meta" style="margin-left:24px;">
+          {% if scan.full_gallery_available %}
+            Storefront đã cung cấp toàn bộ gallery trong lần quét collection; xuất CSV ngay, không mở lại từng sản phẩm và không tốn thêm credit.
+          {% else %}
+            Mở từng trang chi tiết bằng fast path hoặc Firecrawl để lấy gallery đầy đủ; chậm và tốn credit hơn.
+          {% endif %}
+        </span>
+      </label>
+    </fieldset>
+    <button type="submit" class="btn-primary" id="start-submit">Tạo CSV theo lựa chọn</button>
+    <div id="detail-crawl-progress" style="display:none; margin-top:18px;">
+      <div style="height:12px; background:var(--border); border-radius:999px; overflow:hidden; margin-bottom:9px;">
+        <div id="detail-crawl-progress-bar" style="height:100%; width:0; background:var(--rust); transition:width .25s ease;"></div>
+      </div>
+      <p id="detail-crawl-status" style="font-weight:700; margin:0 0 4px;">Đang chuẩn bị crawl...</p>
+      <p id="detail-crawl-count" class="tpl-meta" style="margin:0;">Đang chờ fast path bắt đầu.</p>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<script>
+  const scanForm = document.getElementById('collection-scan-form');
+  if (scanForm) {
+    scanForm.addEventListener('submit', async (event) => {
+      if (!window.fetch) return;
+      event.preventDefault();
+      const submitter = event.submitter;
+      const formData = new FormData(scanForm);
+      formData.set('platform', submitter && submitter.value ? submitter.value : 'auto');
+      scanForm.querySelectorAll('.platform-scan-submit').forEach(button => {
+        button.disabled = true;
+      });
+      if (submitter) {
+        submitter.textContent = 'Đang khởi tạo...';
+      }
+      try {
+        const response = await fetch('{% url "collection_csv_scan_start" %}', {
+          method: 'POST',
+          body: formData,
+          headers: {'X-Requested-With': 'XMLHttpRequest'}
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || 'Không khởi tạo được tiến trình quét.');
+        }
+        window.location.assign(data.progress_url);
+      } catch (error) {
+        scanForm.querySelectorAll('.platform-scan-submit').forEach(button => {
+          button.disabled = false;
+        });
+        if (submitter) submitter.textContent = 'Thử quét lại';
+        window.alert(error.message);
+      }
+    });
+  }
+
+  const startForm = document.getElementById('collection-start-form');
+  if (startForm) {
+    const startSubmit = document.getElementById('start-submit');
+    startForm.addEventListener('submit', async (event) => {
+      const selected = startForm.querySelector('input[name="image_mode"]:checked');
+      const collectionMode = selected && selected.value === 'collection_images';
+      const message = collectionMode
+        ? 'CSV sẽ dùng tối đa 1–2 ảnh ngay trên collection và không mở từng trang sản phẩm. Tiếp tục?'
+        : 'Hệ thống sẽ mở từng trang chi tiết để lấy toàn bộ gallery. Trường hợp xấu nhất có thể dùng tối đa {{ scan.extract_credits }} credit. Tiếp tục?';
+      if (!confirm(message)) {
+        event.preventDefault();
+        return;
+      }
+
+      // Collection-card mode produces the CSV immediately. Only the full
+      // gallery path needs the live detail-page crawl monitor.
+      if (collectionMode || !window.fetch) {
+        startSubmit.disabled = true;
+        startSubmit.textContent = 'Đang tạo CSV...';
+        return;
+      }
+
+      event.preventDefault();
+      startSubmit.disabled = true;
+      startSubmit.textContent = 'Đang crawl...';
+      const progressBox = document.getElementById('detail-crawl-progress');
+      const progressBar = document.getElementById('detail-crawl-progress-bar');
+      const statusText = document.getElementById('detail-crawl-status');
+      const countText = document.getElementById('detail-crawl-count');
+      const progressId = startForm.querySelector('[name="detail_progress_id"]').value;
+      const progressToken = startForm.querySelector('[name="detail_progress_token"]').value;
+      const statusUrl = '{% url "collection_csv_detail_progress_status" %}'
+        + '?progress_id=' + encodeURIComponent(progressId)
+        + '&token=' + encodeURIComponent(progressToken);
+      let polling = true;
+      progressBox.style.display = 'block';
+
+      const number = value => Number(value || 0).toLocaleString('vi-VN');
+      async function pollDetailProgress() {
+        if (!polling) return;
+        try {
+          const response = await fetch(statusUrl, {
+            headers: {'X-Requested-With': 'XMLHttpRequest'},
+            cache: 'no-store'
+          });
+          const data = await response.json();
+          if (!data.ok) throw new Error(data.error || 'Không đọc được tiến độ.');
+          const percent = Math.max(0, Math.min(100, Number(data.percent || 0)));
+          progressBar.style.width = percent + '%';
+          statusText.textContent = data.message || 'Đang crawl trang sản phẩm...';
+          if (data.total) {
+            countText.textContent = `Đã xử lý ${number(data.processed)}/${number(data.total)} sản phẩm (${percent}%).`;
+          } else {
+            countText.textContent = `Đang khởi tạo fast path (${percent}%).`;
+          }
+          if (data.status === 'failed') {
+            countText.textContent = 'Crawl đã dừng do có lỗi.';
+          }
+        } catch (error) {
+          countText.textContent = 'Tạm thời chưa đọc được tiến độ; hệ thống sẽ tự thử lại.';
+        }
+        window.setTimeout(pollDetailProgress, 800);
+      }
+      pollDetailProgress();
+
+      try {
+        // The form contains an input named "action". Named form controls can
+        // shadow HTMLFormElement.action and turn the fetch URL into
+        // "[object HTMLInputElement]", which Django correctly answers with a
+        // 404. Read the HTML attribute explicitly instead.
+        const response = await fetch(startForm.getAttribute('action'), {
+          method: 'POST',
+          body: new FormData(startForm),
+          headers: {'X-Requested-With': 'XMLHttpRequest'}
+        });
+        if (response.redirected) {
+          polling = false;
+          window.location.assign(response.url);
+          return;
+        }
+        const contentType = response.headers.get('Content-Type') || '';
+        if (!response.ok || !contentType.includes('text/csv')) {
+          if (contentType.includes('application/json')) {
+            const data = await response.json();
+            throw new Error(data.error || `HTTP ${response.status}: không tạo được CSV.`);
+          }
+          const pageText = await response.text();
+          const parsed = new DOMParser().parseFromString(pageText, 'text/html');
+          const errorNode = parsed.querySelector('.msg-error');
+          const exceptionNode = parsed.querySelector('.exception_value, main h1, body h1, pre');
+          throw new Error(
+            errorNode
+              ? errorNode.textContent.trim()
+              : exceptionNode
+                ? `HTTP ${response.status}: ${exceptionNode.textContent.trim()}`
+                : `HTTP ${response.status}: không tạo được CSV từ gallery sản phẩm.`
+          );
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+        const download = document.createElement('a');
+        download.href = URL.createObjectURL(blob);
+        download.download = filenameMatch ? filenameMatch[1] : 'collection.csv';
+        document.body.appendChild(download);
+        download.click();
+        download.remove();
+        window.setTimeout(() => URL.revokeObjectURL(download.href), 1000);
+        polling = false;
+        progressBar.style.width = '100%';
+        statusText.textContent = 'Đã hoàn tất và tải CSV.';
+        countText.textContent = 'Toàn bộ gallery đọc được đã được đưa vào file CSV.';
+        startSubmit.textContent = 'Đã tạo CSV';
+      } catch (error) {
+        polling = false;
+        statusText.textContent = 'Không hoàn tất được crawl.';
+        countText.textContent = error.message;
+        startSubmit.disabled = false;
+        startSubmit.textContent = 'Thử lại';
+      }
+    });
+  }
+</script>
+{% endif %}
+
+{% endblock %}

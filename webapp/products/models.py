@@ -73,6 +73,19 @@ class CrawledProduct(models.Model):
         return self.images[0] if self.images else ""
 
 
+class CollectionExportState(models.Model):
+    """Durable merge state for an asynchronous collection CSV export."""
+
+    state_id = models.CharField(max_length=255, unique=True)
+    collection_url = models.URLField(max_length=2000)
+    product_urls = models.JSONField(default=list)
+    fast_products_by_url = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
 class AiVideo(models.Model):
     MODEL_CHOICES = [
         ("kling", "Kling O3 Pro"),

@@ -1,23 +1,31 @@
 import base64
+import hashlib
 import io
 import itertools
 import json
 import re
+import threading
 import uuid
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from urllib.parse import unquote, urlencode, urlparse
 
 from PIL import Image
 
 from django.conf import settings
 from django.contrib import messages
+from django.core import signing
 from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.paginator import Paginator
+from django.db import close_old_connections
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.text import slugify
 
 
 def _safe_next(request, next_url):
@@ -53,12 +61,20 @@ def set_shop(request):
 from . import fal_studio
 from . import fal_upscale
 from . import fal_video
+from . import collection_csv as collection_csv_builder
+from . import collection_fast_client
 from . import firecrawl_client
 from . import openrouter_client
 from . import printify_client as pc
 from . import shopify_csv
 from . import shopify_taxonomy
-from .models import AiMockup, AiVideo, CrawledProduct, CrawlJob
+from .models import (
+    AiMockup,
+    AiVideo,
+    CollectionExportState,
+    CrawledProduct,
+    CrawlJob,
+)
 from .templates_catalog import TEMPLATES
 
 GENERIC_FILENAME_WORDS = {
@@ -1553,6 +1569,15 @@ def _dedupe_repeated_text(text: str) -> str:
 
 
 CRAWL_LIMIT_MAX = 100
+COLLECTION_TOKEN_SALT = "products.collection-csv"
+COLLECTION_TOKEN_MAX_AGE = 24 * 60 * 60
+COLLECTION_EXPORT_CACHE_PREFIX = "products.collection-csv.export:"
+COLLECTION_SCAN_CACHE_PREFIX = "products.collection-csv.scan:"
+COLLECTION_SCAN_JOB_CACHE_PREFIX = "products.collection-csv.scan-job:"
+COLLECTION_SCAN_JOB_TOKEN_SALT = "products.collection-csv.scan-job"
+COLLECTION_SCAN_STATE_META_KEY = "__collection_scan_state__"
+COLLECTION_DETAIL_PROGRESS_CACHE_PREFIX = "products.collection-csv.detail-progress:"
+COLLECTION_DETAIL_PROGRESS_TOKEN_SALT = "products.collection-csv.detail-progress"
 
 
 def _parse_url_list(raw: str) -> list[str]:
@@ -1562,6 +1587,1460 @@ def _parse_url_list(raw: str) -> list[str]:
         if line and line.startswith(("http://", "https://")) and line not in urls:
             urls.append(line)
     return urls[:firecrawl_client.MAX_BATCH_URLS]
+
+
+def _collection_csv_context(collection_url: str = "", platform: str = "auto") -> dict:
+    return {
+        "collection_url": collection_url,
+        "platform": platform,
+        "credits_per_product": firecrawl_client.COLLECTION_CREDITS_PER_PAGE,
+        "max_collection_pages": firecrawl_client.MAX_COLLECTION_PAGES,
+        "max_collection_products": firecrawl_client.MAX_COLLECTION_PRODUCTS,
+    }
+
+
+def _valid_http_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _collection_csv_response(products: list[dict], collection_url: str) -> HttpResponse:
+    csv_content = collection_csv_builder.build_collection_csv(products)
+    parsed_url = urlparse(collection_url or "")
+    collection_path = parsed_url.path.rstrip("/")
+    collection_name = slugify(collection_path.rsplit("/", 1)[-1]) or "collection"
+    site_name = (parsed_url.hostname or "site").lower().removeprefix("www.").split(".")[0]
+    filename = slugify(f"{site_name}-{collection_name}").replace("-", "_")
+    response = HttpResponse("\ufeff" + csv_content, content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}.csv"'
+    return response
+
+
+def _collection_export_cache_key(state_id: str) -> str:
+    return f"{COLLECTION_EXPORT_CACHE_PREFIX}{state_id}"
+
+
+def _collection_scan_cache_key(state_id: str) -> str:
+    return f"{COLLECTION_SCAN_CACHE_PREFIX}{state_id}"
+
+
+def _collection_scan_job_cache_key(job_id: str) -> str:
+    return f"{COLLECTION_SCAN_JOB_CACHE_PREFIX}{job_id}"
+
+
+def _collection_detail_progress_cache_key(progress_id: str) -> str:
+    return f"{COLLECTION_DETAIL_PROGRESS_CACHE_PREFIX}{progress_id}"
+
+
+def _collection_detail_progress_fields() -> dict:
+    progress_id = uuid.uuid4().hex
+    return {
+        "detail_progress_id": progress_id,
+        "detail_progress_token": signing.dumps(
+            {"progress_id": progress_id},
+            salt=COLLECTION_DETAIL_PROGRESS_TOKEN_SALT,
+            compress=True,
+        ),
+    }
+
+
+def _collection_detail_progress_reporter(request):
+    """Return a safe cache reporter for a signed Step-2 progress ID."""
+    progress_id = request.POST.get("detail_progress_id", "").strip()
+    progress_token = request.POST.get("detail_progress_token", "").strip()
+    if not progress_id or not progress_token:
+        return None
+    try:
+        payload = signing.loads(
+            progress_token,
+            salt=COLLECTION_DETAIL_PROGRESS_TOKEN_SALT,
+            max_age=COLLECTION_TOKEN_MAX_AGE,
+        )
+        if payload.get("progress_id") != progress_id:
+            return None
+    except (TypeError, signing.BadSignature):
+        return None
+
+    progress_key = _collection_detail_progress_cache_key(progress_id)
+
+    def report(**updates) -> None:
+        state = cache.get(progress_key) or {
+            "status": "running",
+            "stage": "starting",
+            "percent": 0,
+            "processed": 0,
+            "total": 0,
+            "succeeded": 0,
+            "message": "Đang chuẩn bị crawl trang chi tiết sản phẩm...",
+        }
+        state.update(updates)
+        cache.set(progress_key, state, COLLECTION_TOKEN_MAX_AGE)
+
+    return report
+
+
+def _save_collection_scan_state(request, state_id: str, scan_state: dict) -> None:
+    """Keep a completed collection scan available across reloads/workers."""
+    state_key = _collection_scan_cache_key(state_id)
+    cache.set(state_key, scan_state, COLLECTION_TOKEN_MAX_AGE)
+    # Cookie/database-backed sessions should not absorb thousands of product
+    # rows. Large scans remain durable in CollectionExportState below.
+    if request is not None and len(scan_state.get("product_urls") or []) <= 500:
+        request.session[state_key] = scan_state
+
+    products_by_url = {
+        product.get("product_url"): product
+        for product in (scan_state.get("products") or [])
+        if isinstance(product, dict) and product.get("product_url")
+    }
+    products_by_url[COLLECTION_SCAN_STATE_META_KEY] = {
+        key: value
+        for key, value in scan_state.items()
+        if key not in {"product_urls", "products", "collection_url"}
+    }
+    CollectionExportState.objects.update_or_create(
+        state_id=state_id,
+        defaults={
+            "collection_url": scan_state.get("collection_url") or "",
+            "product_urls": scan_state.get("product_urls") or [],
+            "fast_products_by_url": products_by_url,
+        },
+    )
+
+
+def _load_collection_scan_state(request, state_id: str) -> dict | None:
+    state_key = _collection_scan_cache_key(state_id)
+    state = cache.get(state_key)
+    if not state and request is not None:
+        state = request.session.get(state_key)
+    if state:
+        return state
+
+    stored = CollectionExportState.objects.filter(state_id=state_id).first()
+    if not stored:
+        return None
+    products_by_url = dict(stored.fast_products_by_url or {})
+    metadata = products_by_url.pop(COLLECTION_SCAN_STATE_META_KEY, {})
+    state = {
+        **(metadata if isinstance(metadata, dict) else {}),
+        "collection_url": stored.collection_url,
+        "product_urls": stored.product_urls or [],
+        "products": [
+            product
+            for product in products_by_url.values()
+            if isinstance(product, dict)
+        ],
+    }
+    cache.set(state_key, state, COLLECTION_TOKEN_MAX_AGE)
+    return state
+
+
+def _save_collection_export_state(request, state_id: str, export_state: dict) -> None:
+    """Persist batch merge data across cache eviction, reloads and workers."""
+    state_key = _collection_export_cache_key(state_id)
+    cache.set(state_key, export_state, COLLECTION_TOKEN_MAX_AGE)
+    request.session[state_key] = export_state
+    CollectionExportState.objects.update_or_create(
+        state_id=state_id,
+        defaults={
+            "collection_url": export_state.get("collection_url") or "",
+            "product_urls": export_state.get("product_urls") or [],
+            "fast_products_by_url": export_state.get("fast_products_by_url") or {},
+        },
+    )
+
+
+def _load_collection_export_state(request, state_id: str) -> dict | None:
+    state_key = _collection_export_cache_key(state_id)
+    state = cache.get(state_key) or request.session.get(state_key)
+    if state:
+        return state
+    stored = CollectionExportState.objects.filter(state_id=state_id).first()
+    if not stored:
+        return None
+    state = {
+        "collection_url": stored.collection_url,
+        "product_urls": stored.product_urls,
+        "fast_products_by_url": stored.fast_products_by_url,
+    }
+    cache.set(state_key, state, COLLECTION_TOKEN_MAX_AGE)
+    return state
+
+
+def _reusable_collection_products(
+    product_urls: list[str], collection_url: str
+) -> dict[str, dict]:
+    """Reuse complete product rows from recent exports on the same storefront."""
+    requested_by_key = {
+        _collection_product_url_key(url): url
+        for url in product_urls
+        if url
+    }
+    hostname = (urlparse(collection_url).hostname or "").lower().removeprefix("www.")
+    if not requested_by_key or not hostname:
+        return {}
+
+    reusable: dict[str, dict] = {}
+    recent_states = (
+        CollectionExportState.objects.filter(
+            created_at__gte=timezone.now() - timedelta(hours=24),
+            collection_url__icontains=hostname,
+        )
+        .only("fast_products_by_url")
+        .order_by("-created_at")[:20]
+    )
+    for stored in recent_states:
+        stored_products = stored.fast_products_by_url or {}
+        # Discovery state contains card images only. Never reuse those rows as
+        # if they were a previously verified full product gallery.
+        if COLLECTION_SCAN_STATE_META_KEY in stored_products:
+            continue
+        for stored_url, product in stored_products.items():
+            if not isinstance(product, dict):
+                continue
+            key = _collection_product_url_key(
+                product.get("product_url") or stored_url
+            )
+            requested_url = requested_by_key.get(key)
+            if not requested_url or requested_url in reusable:
+                continue
+            images = [
+                image
+                for image in dict.fromkeys(product.get("images") or [])
+                if isinstance(image, str) and _valid_http_url(image)
+            ]
+            if (
+                product.get("title")
+                and product.get("price") not in (None, "")
+                and images
+            ):
+                reusable[requested_url] = {
+                    **product,
+                    "product_url": requested_url,
+                    "images": images,
+                }
+        if len(reusable) == len(requested_by_key):
+            break
+    return reusable
+
+
+def _persist_reusable_collection_products(
+    collection_url: str,
+    product_urls: list[str],
+    products_by_url: dict[str, dict],
+) -> None:
+    """Persist a complete/partial fast result under a stable URL-set cache key."""
+    if not products_by_url:
+        return
+    url_set = "\n".join(sorted(
+        _collection_product_url_key(url) for url in product_urls if url
+    ))
+    digest = hashlib.sha256(url_set.encode("utf-8")).hexdigest()[:32]
+    CollectionExportState.objects.update_or_create(
+        state_id=f"fast-cache-{digest}",
+        defaults={
+            "collection_url": collection_url,
+            "product_urls": list(product_urls),
+            "fast_products_by_url": products_by_url,
+        },
+    )
+
+
+def _collection_card_rows(
+    product_urls: list[str],
+    collection_products: list[dict],
+    *,
+    allow_empty_images: bool = False,
+) -> tuple[list[dict], list[str]]:
+    """Order validated collection-card rows and cap their gallery at two.
+
+    ShopBase may advertise legitimate image-less catalogue products.  Those
+    rows retain title/price and export with ``image_count=0`` so a handful of
+    empty cards do not disable the fast mode for an entire large search.
+    """
+    products_by_url = {
+        product.get("product_url"): product
+        for product in (collection_products or [])
+        if isinstance(product, dict) and product.get("product_url")
+    }
+    rows, missing = _merge_collection_products(product_urls, products_by_url, [])
+    if missing:
+        return [], missing
+    normalised = []
+    for product in rows:
+        images = list(dict.fromkeys(product.get("images") or []))[:2]
+        if (
+            not product.get("title")
+            or product.get("price") in (None, "")
+            or (not images and not allow_empty_images)
+        ):
+            missing.append(product.get("product_url") or "unknown")
+            continue
+        normalised.append({**product, "images": images})
+    return (normalised, []) if not missing else ([], missing)
+
+
+def _collection_full_gallery_rows(
+    product_urls: list[str], collection_products: list[dict]
+) -> tuple[list[dict], list[str]]:
+    """Order and validate complete galleries captured during discovery."""
+    products_by_url = {
+        product.get("product_url"): product
+        for product in (collection_products or [])
+        if isinstance(product, dict) and product.get("product_url")
+    }
+    rows, missing = _merge_collection_products(product_urls, products_by_url, [])
+    if missing:
+        return [], missing
+    normalised = []
+    for product in rows:
+        images = [
+            image
+            for image in dict.fromkeys(product.get("images") or [])
+            if isinstance(image, str) and _valid_http_url(image)
+        ]
+        if not product.get("title") or product.get("price") in (None, "") or not images:
+            missing.append(product.get("product_url") or "unknown")
+            continue
+        normalised.append({**product, "images": images})
+    return (normalised, []) if not missing else ([], missing)
+
+
+def _collection_product_url_key(url: str) -> str:
+    """Normalise source URLs enough to join fast and Firecrawl results."""
+    parsed = urlparse(str(url or ""))
+    hostname = (parsed.hostname or "").lower().removeprefix("www.")
+    path = unquote(parsed.path).rstrip("/")
+    return f"{hostname}{path}"
+
+
+def _merge_collection_products(
+    product_urls: list[str],
+    fast_products_by_url: dict[str, dict],
+    fallback_products: list[dict],
+) -> tuple[list[dict], list[str]]:
+    """Merge partial fast results with fallback rows in collection order."""
+    fast_by_key: dict[str, dict] = {}
+    for requested_url, product in (fast_products_by_url or {}).items():
+        if not isinstance(product, dict):
+            continue
+        fast_by_key[_collection_product_url_key(requested_url)] = product
+        product_url = product.get("product_url")
+        if product_url:
+            fast_by_key[_collection_product_url_key(product_url)] = product
+
+    fallback_by_key = {
+        _collection_product_url_key(product.get("product_url")): product
+        for product in (fallback_products or [])
+        if isinstance(product, dict) and product.get("product_url")
+    }
+
+    merged: list[dict] = []
+    missing_urls: list[str] = []
+    for url in product_urls:
+        key = _collection_product_url_key(url)
+        product = fast_by_key.get(key) or fallback_by_key.get(key)
+        if product is None:
+            missing_urls.append(url)
+        else:
+            merged.append(product)
+    return merged, missing_urls
+
+
+def _build_collection_scan_summary(scan: dict, platform: str) -> dict:
+    """Build the compact, signed summary shown by collection CSV step 2."""
+    product_urls = scan.get("urls") or []
+    collection_products = scan.get("products") or []
+    fallback_product_count = int(
+        scan.get("fallback_product_count", len(product_urls))
+    )
+    # Card-complete ShopBase searches still need every product detail page
+    # when the user selects the full-gallery mode. Do not display a misleading
+    # worst-case estimate of zero merely because every listing card was read.
+    if not scan.get("full_gallery_available"):
+        fallback_product_count = len(product_urls)
+    summary = {
+        "product_count": len(product_urls),
+        "pages_scanned": scan.get("pages_scanned") or 0,
+        "scan_credits": scan.get("credits_used") or 0,
+        "extract_credits": (
+            fallback_product_count
+            * firecrawl_client.COLLECTION_CREDITS_PER_PAGE
+        ),
+        "fallback_product_count": fallback_product_count,
+        "truncated": bool(scan.get("truncated")),
+        "discovery_mode": scan.get("discovery_mode") or "pagination",
+        "advertised_count": scan.get("advertised_count"),
+        "skipped_no_image_count": int(scan.get("skipped_no_image_count") or 0),
+        "scroll_rounds": scan.get("scroll_rounds") or 0,
+        "recovery_passes": scan.get("recovery_passes") or 0,
+        "duplicate_url_count": scan.get("duplicate_url_count") or 0,
+        "waf_blocked": bool(scan.get("waf_blocked")),
+        "card_diagnostics": scan.get("card_diagnostics") or {},
+        "platform": scan.get("platform") or platform,
+    }
+    shopbase_cards = (
+        summary["platform"] == "shopbase"
+        or summary["discovery_mode"] == "shopbase_collection_api"
+        or (
+            summary["discovery_mode"] == "search_api"
+            and isinstance(summary["waf_blocked"], bool)
+        )
+    )
+    card_rows, missing_card_rows = _collection_card_rows(
+        product_urls,
+        collection_products,
+        allow_empty_images=shopbase_cards,
+    )
+    summary["collection_images_available"] = (
+        bool(card_rows)
+        and not missing_card_rows
+        and len(card_rows) == len(product_urls)
+    )
+    summary["card_no_image_count"] = max(
+        0,
+        int(summary["card_diagnostics"].get("returned") or 0)
+        - int(summary["card_diagnostics"].get("with_images") or 0),
+    )
+    gallery_rows, missing_gallery_rows = _collection_full_gallery_rows(
+        product_urls, collection_products
+    )
+    summary["full_gallery_available"] = (
+        bool(scan.get("full_gallery_available"))
+        and bool(gallery_rows)
+        and not missing_gallery_rows
+        and len(gallery_rows) == len(product_urls)
+    )
+    return summary
+
+
+def _collection_scan_token(
+    collection_url: str,
+    scan_summary: dict,
+    product_urls: list[str],
+    scan_state_id: str,
+) -> str:
+    return signing.dumps(
+        {
+            "collection_url": collection_url,
+            # Large result sets live server-side so hidden fields never contain
+            # thousands of URLs.
+            "urls": [] if scan_state_id else product_urls,
+            "scan": scan_summary,
+            "scan_state_id": scan_state_id,
+        },
+        salt=COLLECTION_TOKEN_SALT,
+        compress=True,
+    )
+
+
+def collection_csv_page(request):
+    """Scan a whole collection, then start its lightweight Firecrawl batch."""
+    context = _collection_csv_context()
+    if request.method != "POST":
+        return render(request, "products/collection_csv.html", context)
+
+    action = request.POST.get("action", "scan")
+    if action == "start":
+        scan_token = request.POST.get("scan_token", "")
+        try:
+            scan_payload = signing.loads(
+                scan_token,
+                salt=COLLECTION_TOKEN_SALT,
+                max_age=COLLECTION_TOKEN_MAX_AGE,
+            )
+            collection_url = scan_payload["collection_url"]
+            scan_state_id = scan_payload.get("scan_state_id")
+            scan_state = (
+                _load_collection_scan_state(request, scan_state_id)
+                if scan_state_id else None
+            )
+            product_urls = (
+                scan_payload.get("urls")
+                or (scan_state or {}).get("product_urls")
+                or []
+            )
+            if not isinstance(product_urls, list) or not product_urls:
+                raise signing.BadSignature("empty collection")
+        except (KeyError, TypeError, signing.BadSignature):
+            messages.error(request, "Kết quả quét collection đã hết hạn hoặc không hợp lệ. Vui lòng quét lại.")
+            return render(request, "products/collection_csv.html", context)
+
+        context = _collection_csv_context(collection_url)
+        context.update({
+            "scan": scan_payload.get("scan") or {},
+            "scan_token": scan_token,
+            **_collection_detail_progress_fields(),
+        })
+        detail_progress = _collection_detail_progress_reporter(request)
+
+        scan_summary = scan_payload.get("scan") or {}
+        shopbase_scan = (
+            scan_summary.get("platform") == "shopbase"
+            or scan_summary.get("discovery_mode") == "shopbase_collection_api"
+            # Auto-detected SiteBase searches historically omitted ``platform``
+            # from the signed scan token. They can still be identified safely:
+            # only the SiteBase search adapter emits ``search_api`` together
+            # with an explicit boolean ``waf_blocked`` result.
+            or (
+                scan_summary.get("discovery_mode") == "search_api"
+                and isinstance(scan_summary.get("waf_blocked"), bool)
+            )
+        )
+
+        image_mode = request.POST.get("image_mode", "full_gallery")
+        if image_mode == "collection_images":
+            card_rows, missing_rows = _collection_card_rows(
+                product_urls,
+                (scan_state or {}).get("products") or [],
+                allow_empty_images=shopbase_scan,
+            )
+            if not scan_state or missing_rows or len(card_rows) != len(product_urls):
+                messages.error(
+                    request,
+                    "Dữ liệu ảnh collection không còn đầy đủ. Vui lòng quét lại "
+                    "collection rồi chọn lại chế độ ảnh collection.",
+                )
+                return render(request, "products/collection_csv.html", context)
+            return _collection_csv_response(card_rows, collection_url)
+
+        woocommerce_scan = (
+            scan_summary.get("platform") == "woocommerce"
+            or scan_summary.get("discovery_mode") == "woocommerce_store_api"
+        )
+        if (
+            image_mode == "full_gallery"
+            and scan_summary.get("full_gallery_available")
+            and not shopbase_scan
+        ):
+            gallery_rows, missing_rows = _collection_full_gallery_rows(
+                product_urls,
+                (scan_state or {}).get("products") or [],
+            )
+            if scan_state and not missing_rows and len(gallery_rows) == len(product_urls):
+                return _collection_csv_response(gallery_rows, collection_url)
+            messages.error(
+                request,
+                "Dữ liệu gallery storefront không còn đầy đủ. Vui lòng quét lại "
+                "collection để lấy lại toàn bộ ảnh mà không crawl từng sản phẩm.",
+            )
+            return render(request, "products/collection_csv.html", context)
+
+        # Woo's Store API is authoritative for rows that already have images.
+        # Some Woo image plugins omit only a subset of galleries from that API;
+        # seed those complete rows here so direct HTML/Firecrawl touches only
+        # the genuinely missing URLs.
+        fast_products_by_url: dict[str, dict] = {}
+        if woocommerce_scan and scan_state:
+            for product in scan_state.get("products") or []:
+                if not isinstance(product, dict):
+                    continue
+                product_url = str(product.get("product_url") or "").strip()
+                images = [
+                    image
+                    for image in dict.fromkeys(product.get("images") or [])
+                    if isinstance(image, str) and _valid_http_url(image)
+                ]
+                if (
+                    product_url
+                    and product.get("title")
+                    and product.get("price") not in (None, "")
+                    and images
+                ):
+                    fast_products_by_url[product_url] = {**product, "images": images}
+        if shopbase_scan:
+            fast_products_by_url.update(
+                _reusable_collection_products(product_urls, collection_url)
+            )
+        seeded_keys = {
+            _collection_product_url_key(url)
+            for url in fast_products_by_url
+        }
+        urls_for_fast_path = [
+            url
+            for url in product_urls
+            if _collection_product_url_key(url) not in seeded_keys
+        ]
+        seeded_count = len(product_urls) - len(urls_for_fast_path)
+        if detail_progress:
+            detail_progress(
+                status="running",
+                stage="fast_path",
+                percent=0,
+                processed=seeded_count,
+                total=len(product_urls),
+                succeeded=seeded_count,
+                message=(
+                    f"Đang mở trang chi tiết: {seeded_count}/{len(product_urls)} "
+                    "sản phẩm đã có gallery."
+                ),
+            )
+
+        def fast_path_progress(event: dict) -> None:
+            if not detail_progress:
+                return
+            event_total = max(1, int(event.get("total") or 0))
+            event_completed = int(event.get("completed") or 0)
+            if event.get("stage") == "retrying":
+                retry_round = int(event.get("retry_round") or 0)
+                detail_progress(
+                    status="running",
+                    stage="retrying",
+                    percent=min(89, 84 + round(event_completed * 5 / event_total)),
+                    processed=len(product_urls),
+                    total=len(product_urls),
+                    message=(
+                        f"Đang thử lại {event_completed}/{event_total} URL bị giới hạn "
+                        f"(lần {retry_round})..."
+                    ),
+                )
+                return
+            processed = min(
+                len(product_urls), seeded_count + event_completed
+            )
+            detail_progress(
+                status="running",
+                stage="fast_path",
+                percent=min(84, round(processed * 84 / len(product_urls))),
+                processed=processed,
+                total=len(product_urls),
+                succeeded=seeded_count + int(event.get("succeeded") or 0),
+                message=(
+                    f"Đang đọc gallery trực tiếp: {processed}/{len(product_urls)} "
+                    "trang sản phẩm."
+                ),
+            )
+
+        # Fast path: public Product JSON-LD is deterministic and free. Skip it
+        # when discovery already proved this storefront returns a WAF page to
+        # direct HTTP; retrying 412 blocked URLs only wastes several minutes.
+        hostname = (urlparse(collection_url).hostname or "").lower()
+        known_waf_store = hostname.removeprefix("www.") == "legendslockerssport.com"
+        # A ShopBase catalogue endpoint may require a browser cookie while its
+        # individual product HTML remains publicly readable. Do not use the
+        # discovery WAF flag to skip the product fast path for that platform.
+        if not urls_for_fast_path:
+            fast_result = {
+                "products": [],
+                "products_by_url": {},
+                "failed_urls": [],
+                "elapsed_seconds": 0.0,
+            }
+        elif (scan_summary.get("waf_blocked") and not shopbase_scan) or known_waf_store:
+            fast_result = {
+                "products": [],
+                "products_by_url": {},
+                "failed_urls": list(urls_for_fast_path),
+                "elapsed_seconds": 0.0,
+            }
+        elif shopbase_scan:
+            # ShopBase product URLs look Shopify-like, but its `.js` route is
+            # absent/slow. Woo also has no Shopify `.js` route. Go straight to
+            # the platform's authoritative gallery in product HTML.
+            fast_kwargs = {}
+            if detail_progress:
+                fast_kwargs["progress_callback"] = fast_path_progress
+            fast_result = collection_fast_client.scrape_shopbase_products_fast(
+                urls_for_fast_path,
+                **fast_kwargs,
+            )
+        elif woocommerce_scan:
+            fast_kwargs = {"try_shopify_json": False}
+            if detail_progress:
+                fast_kwargs["progress_callback"] = fast_path_progress
+            fast_result = collection_fast_client.scrape_products_fast(
+                urls_for_fast_path,
+                **fast_kwargs,
+            )
+        else:
+            fast_kwargs = {}
+            if detail_progress:
+                fast_kwargs["progress_callback"] = fast_path_progress
+            fast_result = collection_fast_client.scrape_products_fast(
+                urls_for_fast_path,
+                **fast_kwargs,
+            )
+
+        direct_products_by_url = dict(fast_result.get("products_by_url") or {})
+        if not direct_products_by_url:
+            direct_products_by_url = {
+                product.get("product_url"): product
+                for product in (fast_result.get("products") or [])
+                if product.get("product_url")
+            }
+
+        # ShopBase may throttle direct server GETs after the first few dozen
+        # products even though the same pages work in a browser session.
+        # Recover the remainder in grouped same-origin browser sessions before
+        # starting a costly one-credit-per-product Firecrawl batch.
+        if shopbase_scan:
+            direct_keys = {
+                _collection_product_url_key(url)
+                for url in direct_products_by_url
+            }
+            direct_failed_urls = [
+                url
+                for url in urls_for_fast_path
+                if _collection_product_url_key(url) not in direct_keys
+            ]
+            if direct_failed_urls:
+                if detail_progress:
+                    detail_progress(
+                        status="running",
+                        stage="browser_recovery",
+                        percent=90,
+                        processed=len(product_urls) - len(direct_failed_urls),
+                        total=len(product_urls),
+                        succeeded=len(product_urls) - len(direct_failed_urls),
+                        message=(
+                            f"Fast path còn thiếu {len(direct_failed_urls)} sản phẩm; "
+                            "đang khôi phục gallery theo từng batch trình duyệt..."
+                        ),
+                    )
+
+                def browser_progress(event: dict) -> None:
+                    if not detail_progress:
+                        return
+                    event_total = max(1, int(event.get("total") or 0))
+                    event_completed = int(event.get("completed") or 0)
+                    detail_progress(
+                        status="running",
+                        stage="browser_recovery",
+                        percent=min(97, 90 + round(event_completed * 7 / event_total)),
+                        processed=(
+                            len(product_urls) - len(direct_failed_urls)
+                            + event_completed
+                        ),
+                        total=len(product_urls),
+                        message=(
+                            f"Đang khôi phục {event_completed}/{event_total} gallery "
+                            "còn thiếu bằng trình duyệt..."
+                        ),
+                    )
+                try:
+                    browser_kwargs = {}
+                    if detail_progress:
+                        browser_kwargs["progress_callback"] = browser_progress
+                    browser_fast_result = (
+                        firecrawl_client.scrape_sitebase_product_galleries_via_browser(
+                            collection_url,
+                            direct_failed_urls,
+                            **browser_kwargs,
+                        )
+                    )
+                except Exception as exc:
+                    if "credit" in str(exc).lower():
+                        if detail_progress:
+                            detail_progress(
+                                status="failed",
+                                stage="failed",
+                                message=(
+                                    "Firecrawl không đủ credit để khôi phục gallery "
+                                    "ShopBase còn thiếu."
+                                ),
+                            )
+                        messages.error(
+                            request,
+                            "Firecrawl không còn đủ credit để khôi phục các sản phẩm "
+                            "ShopBase mà fast path không đọc được. Không khởi chạy "
+                            "batch tốn credit cho từng sản phẩm.",
+                        )
+                        return render(request, "products/collection_csv.html", context)
+                    browser_fast_result = None
+                if browser_fast_result:
+                    direct_products_by_url.update(
+                        browser_fast_result.get("products_by_url") or {}
+                    )
+        fast_products_by_url.update(direct_products_by_url)
+
+        completed_keys = {
+            _collection_product_url_key(url)
+            for url in fast_products_by_url
+        }
+        failed_urls = [
+            url
+            for url in product_urls
+            if _collection_product_url_key(url) not in completed_keys
+        ]
+        if not failed_urls:
+            merged_products, missing_urls = _merge_collection_products(
+                product_urls,
+                fast_products_by_url,
+                [],
+            )
+            if not missing_urls:
+                _persist_reusable_collection_products(
+                    collection_url,
+                    product_urls,
+                    fast_products_by_url,
+                )
+                if detail_progress:
+                    detail_progress(
+                        status="completed",
+                        stage="completed",
+                        percent=100,
+                        processed=len(product_urls),
+                        total=len(product_urls),
+                        succeeded=len(product_urls),
+                        message=(
+                            f"Hoàn tất {len(product_urls)} sản phẩm; đang tải CSV..."
+                        ),
+                    )
+                return _collection_csv_response(merged_products, collection_url)
+
+        if not failed_urls:
+            failed_urls = list(product_urls)
+
+        if failed_urls:
+            messages.warning(
+                request,
+                f"Fast path đã đọc {len(product_urls) - len(failed_urls)}/{len(product_urls)} "
+                f"sản phẩm; Firecrawl chỉ bổ sung {len(failed_urls)} sản phẩm còn thiếu.",
+            )
+        if shopbase_scan:
+            _persist_reusable_collection_products(
+                collection_url,
+                product_urls,
+                fast_products_by_url,
+            )
+        try:
+            if detail_progress:
+                detail_progress(
+                    status="running",
+                    stage="firecrawl_handoff",
+                    percent=98,
+                    processed=len(product_urls) - len(failed_urls),
+                    total=len(product_urls),
+                    succeeded=len(product_urls) - len(failed_urls),
+                    message=(
+                        f"Đang chuyển {len(failed_urls)} sản phẩm còn thiếu sang "
+                        "Firecrawl fallback..."
+                    ),
+                )
+            started = firecrawl_client.start_collection_product_export(failed_urls)
+        except Exception as exc:
+            if detail_progress:
+                detail_progress(
+                    status="failed",
+                    stage="failed",
+                    message=f"Không bắt đầu được Firecrawl fallback: {exc}",
+                )
+            messages.error(request, f"Không bắt đầu được batch crawl: {exc}")
+            return render(request, "products/collection_csv.html", context)
+
+        state_id = started["job_id"]
+        export_state = {
+            "collection_url": collection_url,
+            "product_urls": list(product_urls),
+            "fast_products_by_url": fast_products_by_url,
+        }
+        _save_collection_export_state(request, state_id, export_state)
+
+        job_token = signing.dumps(
+            {
+                "job_id": started["job_id"],
+                "state_id": state_id,
+                "collection_url": collection_url,
+                "requested": len(product_urls),
+                "fast_count": len(product_urls) - len(failed_urls),
+                "fallback_requested": started["requested"],
+                "invalid_url_count": len(started.get("invalid_urls") or []),
+            },
+            salt=COLLECTION_TOKEN_SALT,
+            compress=True,
+        )
+        query = urlencode({"token": job_token})
+        if detail_progress:
+            detail_progress(
+                status="handoff",
+                stage="firecrawl_handoff",
+                percent=99,
+                processed=len(product_urls) - len(failed_urls),
+                total=len(product_urls),
+                succeeded=len(product_urls) - len(failed_urls),
+                message="Firecrawl đã nhận batch; đang mở màn hình tiến độ fallback...",
+            )
+        return redirect(f"{reverse('collection_csv_progress')}?{query}")
+
+    collection_url = request.POST.get("collection_url", "").strip()
+    platform = request.POST.get("platform", "auto").strip().lower()
+    if platform == "woo":
+        platform = "woocommerce"
+    if platform not in {"auto", "shopify", "shopbase", "woocommerce"}:
+        platform = "auto"
+    context = _collection_csv_context(collection_url, platform)
+    if not _valid_http_url(collection_url):
+        messages.error(request, "Bạn cần nhập một URL collection http/https hợp lệ.")
+        return render(request, "products/collection_csv.html", context)
+
+    try:
+        scan = firecrawl_client.discover_collection_product_links(
+            collection_url,
+            platform=platform,
+        )
+    except Exception as exc:
+        messages.error(request, f"Không quét được collection: {exc}")
+        return render(request, "products/collection_csv.html", context)
+
+    scan_summary = _build_collection_scan_summary(scan, platform)
+    collection_products = scan.get("products") or []
+    scan_state_id = ""
+    if collection_products:
+        scan_state_id = uuid.uuid4().hex
+        scan_state = {
+            "collection_url": collection_url,
+            "product_urls": list(scan["urls"]),
+            # Preserve partial Woo rows too. The start step can then reuse all
+            # complete Store API galleries and open only products whose image
+            # array is empty. Collection-image mode applies its two-image cap
+            # when the user selects it.
+            "products": collection_products,
+            "scan_summary": scan_summary,
+            "platform": platform,
+        }
+        _save_collection_scan_state(request, scan_state_id, scan_state)
+    scan_token = _collection_scan_token(
+        collection_url,
+        scan_summary,
+        scan["urls"],
+        scan_state_id,
+    )
+    context.update({
+        "scan": scan_summary,
+        "scan_token": scan_token,
+        **_collection_detail_progress_fields(),
+    })
+    return render(request, "products/collection_csv.html", context)
+
+
+def _run_collection_scan_job(
+    job_id: str,
+    state_id: str,
+    collection_url: str,
+    platform: str,
+) -> None:
+    """Run link discovery outside the request and publish live page progress."""
+    job_key = _collection_scan_job_cache_key(job_id)
+
+    def update_status(values: dict | None = None, **updates) -> None:
+        status = cache.get(job_key) or {
+            "status": "running",
+            "stage": "starting",
+            "completed": 0,
+            "total": 0,
+            "pages_completed": 0,
+            "pages_total": 0,
+            "percent": 0,
+            "message": "Đang khởi tạo bộ quét...",
+            "error": "",
+        }
+        if values:
+            status.update(values)
+        status.update(updates)
+        total = int(status.get("total") or 0)
+        completed = int(status.get("completed") or 0)
+        pages_total = int(status.get("pages_total") or 0)
+        pages_completed = int(status.get("pages_completed") or 0)
+        if total:
+            percent = round(min(completed, total) * 100 / total)
+        elif pages_total:
+            percent = round(min(pages_completed, pages_total) * 100 / pages_total)
+        else:
+            percent = int(status.get("percent") or 0)
+        if status.get("status") not in {"completed", "failed"}:
+            percent = min(percent, 99)
+        status["percent"] = 100 if status.get("status") == "completed" else percent
+        cache.set(job_key, status, COLLECTION_TOKEN_MAX_AGE)
+
+    close_old_connections()
+    try:
+        update_status(status="running")
+        scan = firecrawl_client.discover_collection_product_links(
+            collection_url,
+            platform=platform,
+            progress_callback=update_status,
+        )
+        scan_summary = _build_collection_scan_summary(scan, platform)
+        update_status(
+            stage="saving",
+            completed=len(scan.get("urls") or []),
+            total=int(scan.get("advertised_count") or len(scan.get("urls") or [])),
+            pages_completed=scan.get("pages_scanned") or 0,
+            pages_total=scan.get("pages_scanned") or 0,
+            message="Đã quét xong; đang lưu kết quả để mở bước xuất CSV...",
+        )
+        _save_collection_scan_state(
+            None,
+            state_id,
+            {
+                "collection_url": collection_url,
+                "product_urls": list(scan.get("urls") or []),
+                "products": scan.get("products") or [],
+                "scan_summary": scan_summary,
+                "platform": platform,
+            },
+        )
+        update_status(
+            status="completed",
+            stage="completed",
+            completed=len(scan.get("urls") or []),
+            total=len(scan.get("urls") or []),
+            pages_completed=scan.get("pages_scanned") or 0,
+            pages_total=scan.get("pages_scanned") or 0,
+            state_id=state_id,
+            message=(
+                f"Hoàn tất {len(scan.get('urls') or [])} sản phẩm. "
+                "Đang mở bước xuất CSV..."
+            ),
+        )
+    except Exception as exc:
+        update_status(
+            status="failed",
+            stage="failed",
+            error=str(exc),
+            message=f"Không quét được collection: {exc}",
+        )
+    finally:
+        close_old_connections()
+
+
+def _load_collection_scan_job_token(request) -> dict:
+    return signing.loads(
+        request.GET.get("token", ""),
+        salt=COLLECTION_SCAN_JOB_TOKEN_SALT,
+        max_age=COLLECTION_TOKEN_MAX_AGE,
+    )
+
+
+def collection_csv_scan_start(request):
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "Yêu cầu không hợp lệ."}, status=405)
+
+    collection_url = request.POST.get("collection_url", "").strip()
+    platform = request.POST.get("platform", "auto").strip().lower()
+    if platform == "woo":
+        platform = "woocommerce"
+    if platform not in {"auto", "shopify", "shopbase", "woocommerce"}:
+        platform = "auto"
+    if not _valid_http_url(collection_url):
+        return JsonResponse(
+            {"ok": False, "error": "Bạn cần nhập một URL collection http/https hợp lệ."},
+            status=400,
+        )
+
+    job_id = uuid.uuid4().hex
+    state_id = f"scan-job-{job_id}"
+    cache.set(
+        _collection_scan_job_cache_key(job_id),
+        {
+            "status": "queued",
+            "stage": "queued",
+            "completed": 0,
+            "total": 0,
+            "pages_completed": 0,
+            "pages_total": 0,
+            "percent": 0,
+            "message": "Đã xếp hàng; đang khởi tạo bộ quét...",
+            "error": "",
+        },
+        COLLECTION_TOKEN_MAX_AGE,
+    )
+    token = signing.dumps(
+        {
+            "job_id": job_id,
+            "state_id": state_id,
+            "collection_url": collection_url,
+            "platform": platform,
+        },
+        salt=COLLECTION_SCAN_JOB_TOKEN_SALT,
+        compress=True,
+    )
+    threading.Thread(
+        target=_run_collection_scan_job,
+        args=(job_id, state_id, collection_url, platform),
+        name=f"collection-scan-{job_id[:8]}",
+        daemon=True,
+    ).start()
+    query = urlencode({"token": token})
+    return JsonResponse(
+        {
+            "ok": True,
+            "progress_url": f"{reverse('collection_csv_scan_progress')}?{query}",
+        },
+        status=202,
+    )
+
+
+def collection_csv_scan_progress(request):
+    try:
+        payload = _load_collection_scan_job_token(request)
+    except (KeyError, TypeError, signing.BadSignature):
+        messages.error(request, "Tiến trình quét không hợp lệ hoặc đã hết hạn.")
+        return redirect("collection_csv")
+    context = _collection_csv_context(
+        payload.get("collection_url") or "",
+        payload.get("platform") or "auto",
+    )
+    context.update(
+        {
+            "scan_job_started": True,
+            "scan_job_token": request.GET.get("token", ""),
+        }
+    )
+    return render(request, "products/collection_csv.html", context)
+
+
+def collection_csv_scan_status(request):
+    try:
+        payload = _load_collection_scan_job_token(request)
+    except (KeyError, TypeError, signing.BadSignature):
+        return JsonResponse(
+            {"ok": False, "error": "Tiến trình quét không hợp lệ hoặc đã hết hạn."},
+            status=400,
+        )
+    status = cache.get(_collection_scan_job_cache_key(payload["job_id"]))
+    if not status:
+        scan_state = _load_collection_scan_state(None, payload["state_id"])
+        if scan_state:
+            summary = scan_state.get("scan_summary") or {}
+            status = {
+                "status": "completed",
+                "stage": "completed",
+                "completed": summary.get("product_count") or 0,
+                "total": summary.get("product_count") or 0,
+                "pages_completed": summary.get("pages_scanned") or 0,
+                "pages_total": summary.get("pages_scanned") or 0,
+                "percent": 100,
+                "message": "Đã quét xong collection.",
+            }
+        else:
+            return JsonResponse(
+                {"ok": False, "error": "Không còn dữ liệu tiến trình quét."},
+                status=410,
+            )
+    query = urlencode({"token": request.GET.get("token", "")})
+    return JsonResponse(
+        {
+            "ok": True,
+            **status,
+            "result_url": f"{reverse('collection_csv_scan_result')}?{query}",
+        }
+    )
+
+
+def collection_csv_scan_result(request):
+    try:
+        payload = _load_collection_scan_job_token(request)
+    except (KeyError, TypeError, signing.BadSignature):
+        messages.error(request, "Kết quả quét không hợp lệ hoặc đã hết hạn.")
+        return redirect("collection_csv")
+
+    scan_state = _load_collection_scan_state(request, payload["state_id"])
+    if not scan_state:
+        query = urlencode({"token": request.GET.get("token", "")})
+        return redirect(f"{reverse('collection_csv_scan_progress')}?{query}")
+    scan_summary = scan_state.get("scan_summary") or {}
+    product_urls = scan_state.get("product_urls") or []
+    scan_token = _collection_scan_token(
+        payload.get("collection_url") or scan_state.get("collection_url") or "",
+        scan_summary,
+        product_urls,
+        payload["state_id"],
+    )
+    context = _collection_csv_context(
+        payload.get("collection_url") or scan_state.get("collection_url") or "",
+        payload.get("platform") or scan_state.get("platform") or "auto",
+    )
+    context.update({
+        "scan": scan_summary,
+        "scan_token": scan_token,
+        **_collection_detail_progress_fields(),
+    })
+    return render(request, "products/collection_csv.html", context)
+
+
+def collection_csv_detail_progress_status(request):
+    progress_id = request.GET.get("progress_id", "").strip()
+    token = request.GET.get("token", "").strip()
+    try:
+        payload = signing.loads(
+            token,
+            salt=COLLECTION_DETAIL_PROGRESS_TOKEN_SALT,
+            max_age=COLLECTION_TOKEN_MAX_AGE,
+        )
+        if not progress_id or payload.get("progress_id") != progress_id:
+            raise signing.BadSignature("wrong progress id")
+    except (TypeError, signing.BadSignature):
+        return JsonResponse(
+            {"ok": False, "error": "Tiến trình crawl không hợp lệ hoặc đã hết hạn."},
+            status=400,
+        )
+    state = cache.get(_collection_detail_progress_cache_key(progress_id)) or {
+        "status": "queued",
+        "stage": "starting",
+        "percent": 0,
+        "processed": 0,
+        "total": 0,
+        "succeeded": 0,
+        "message": "Đang khởi tạo fast path sản phẩm...",
+    }
+    return JsonResponse({"ok": True, **state})
+
+
+def _load_collection_job_token(request):
+    token = request.GET.get("token", "")
+    return signing.loads(
+        token,
+        salt=COLLECTION_TOKEN_SALT,
+        max_age=COLLECTION_TOKEN_MAX_AGE,
+    )
+
+
+def collection_csv_progress(request):
+    try:
+        payload = _load_collection_job_token(request)
+    except (KeyError, TypeError, signing.BadSignature):
+        messages.error(request, "Job không hợp lệ hoặc đã hết hạn.")
+        return redirect("collection_csv")
+
+    context = _collection_csv_context(payload.get("collection_url") or "")
+    context.update({
+        "job_started": True,
+        "job_token": request.GET.get("token", ""),
+        "requested": payload.get("requested") or 0,
+        "fast_count": payload.get("fast_count") or 0,
+        "fallback_requested": (
+            payload.get("fallback_requested") or payload.get("requested") or 0
+        ),
+        "invalid_url_count": payload.get("invalid_url_count") or 0,
+    })
+    return render(request, "products/collection_csv.html", context)
+
+
+def collection_csv_status(request):
+    try:
+        payload = _load_collection_job_token(request)
+        status = firecrawl_client.get_collection_product_export_status(payload["job_id"])
+    except (KeyError, TypeError, signing.BadSignature):
+        return JsonResponse({"ok": False, "error": "Job không hợp lệ hoặc đã hết hạn."}, status=400)
+    except Exception as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    return JsonResponse({"ok": True, **status})
+
+
+def collection_csv_download(request):
+    try:
+        payload = _load_collection_job_token(request)
+        result = firecrawl_client.get_collection_product_export(payload["job_id"])
+    except (KeyError, TypeError, signing.BadSignature):
+        return HttpResponse("Job không hợp lệ hoặc đã hết hạn.", status=400, content_type="text/plain; charset=utf-8")
+    except firecrawl_client.CollectionBatchIncomplete:
+        # A large batch can expose ``status=completed`` before its numeric
+        # completed counter reaches total. Send an early download attempt back
+        # to the polling screen instead of reporting missing products.
+        query = urlencode({"token": request.GET.get("token", "")})
+        return redirect(f"{reverse('collection_csv_progress')}?{query}")
+    except Exception as exc:
+        return HttpResponse(f"Không tạo được CSV: {exc}", status=400, content_type="text/plain; charset=utf-8")
+
+    products = result.get("products") or []
+    state_id = payload.get("state_id")
+    if state_id:
+        export_state = _load_collection_export_state(request, state_id)
+        if not export_state:
+            requested = int(payload.get("requested") or 0)
+            fast_count = int(payload.get("fast_count") or 0)
+            fallback_requested = int(payload.get("fallback_requested") or 0)
+            # Recovery for existing all-Firecrawl jobs created before the
+            # session-backed state was introduced. Every requested product is
+            # already represented by its metadata sourceURL in the batch, so
+            # no fast-path merge state is required.
+            unique_products = {
+                _collection_product_url_key(product.get("product_url")): product
+                for product in products
+                if isinstance(product, dict) and product.get("product_url")
+            }
+            is_complete_fallback = (
+                requested > 0
+                and fast_count == 0
+                and fallback_requested == requested
+                and len(unique_products) == requested
+            )
+            if is_complete_fallback:
+                products = list(unique_products.values())
+            else:
+                return HttpResponse(
+                    "Dữ liệu ghép tạm thời đã hết hạn và kết quả Firecrawl chưa đủ "
+                    "để tự phục hồi CSV. Vui lòng quét lại collection.",
+                    status=410,
+                    content_type="text/plain; charset=utf-8",
+                )
+        else:
+            products, missing_urls = _merge_collection_products(
+                export_state.get("product_urls") or [],
+                export_state.get("fast_products_by_url") or {},
+                products,
+            )
+            if missing_urls:
+                return HttpResponse(
+                    f"Vẫn thiếu {len(missing_urls)} sản phẩm sau fallback; "
+                    "CSV chưa được xuất để tránh mất dữ liệu.",
+                    status=422,
+                    content_type="text/plain; charset=utf-8",
+                )
+            _persist_reusable_collection_products(
+                payload.get("collection_url") or "",
+                export_state.get("product_urls") or [],
+                {
+                    product.get("product_url"): product
+                    for product in products
+                    if isinstance(product, dict) and product.get("product_url")
+                },
+            )
+
+    if not products:
+        return HttpResponse("Firecrawl không trích xuất được sản phẩm hợp lệ nào.", status=422, content_type="text/plain; charset=utf-8")
+
+    return _collection_csv_response(products, payload.get("collection_url") or "")
+
+
+def _etsy_csv_context(source_url: str = "") -> dict:
+    return {
+        "source_url": source_url,
+        "credits_per_product": firecrawl_client.COLLECTION_CREDITS_PER_PAGE,
+        "max_collection_pages": firecrawl_client.MAX_COLLECTION_PAGES,
+        "max_collection_products": firecrawl_client.MAX_COLLECTION_PRODUCTS,
+    }
+
+
+def etsy_csv_page(request):
+    """Dedicated Etsy shop-section/search/listing to compact CSV workflow."""
+    context = _etsy_csv_context()
+    if request.method != "POST":
+        return render(request, "products/etsy_csv.html", context)
+
+    action = request.POST.get("action", "scan")
+    if action == "start":
+        scan_token = request.POST.get("scan_token", "")
+        try:
+            scan_payload = signing.loads(
+                scan_token,
+                salt=COLLECTION_TOKEN_SALT,
+                max_age=COLLECTION_TOKEN_MAX_AGE,
+            )
+            if scan_payload.get("provider") != "etsy":
+                raise signing.BadSignature("wrong provider")
+            source_url = scan_payload["collection_url"]
+            product_urls = scan_payload["urls"]
+            if not isinstance(product_urls, list) or not product_urls:
+                raise signing.BadSignature("empty Etsy result")
+        except (KeyError, TypeError, signing.BadSignature):
+            messages.error(request, "Kết quả quét Etsy đã hết hạn hoặc không hợp lệ.")
+            return render(request, "products/etsy_csv.html", context)
+
+        context = _etsy_csv_context(source_url)
+        context.update({
+            "scan": scan_payload.get("scan") or {},
+            "scan_token": scan_token,
+        })
+        try:
+            started = firecrawl_client.start_collection_product_export(product_urls)
+        except Exception as exc:
+            messages.error(request, f"Không bắt đầu được batch Etsy: {exc}")
+            return render(request, "products/etsy_csv.html", context)
+
+        state_id = started["job_id"]
+        export_state = {
+            "collection_url": source_url,
+            "product_urls": list(product_urls),
+            "fast_products_by_url": {},
+        }
+        _save_collection_export_state(request, state_id, export_state)
+        job_token = signing.dumps(
+            {
+                "provider": "etsy",
+                "job_id": state_id,
+                "state_id": state_id,
+                "collection_url": source_url,
+                "requested": len(product_urls),
+                "fast_count": 0,
+                "fallback_requested": started["requested"],
+                "invalid_url_count": len(started.get("invalid_urls") or []),
+            },
+            salt=COLLECTION_TOKEN_SALT,
+            compress=True,
+        )
+        return redirect(
+            f"{reverse('etsy_csv_progress')}?{urlencode({'token': job_token})}"
+        )
+
+    source_url = request.POST.get("source_url", "").strip()
+    context = _etsy_csv_context(source_url)
+    if not _valid_http_url(source_url):
+        messages.error(request, "Bạn cần nhập URL Etsy http/https hợp lệ.")
+        return render(request, "products/etsy_csv.html", context)
+    try:
+        scan = firecrawl_client.discover_etsy_listing_links(source_url)
+    except Exception as exc:
+        messages.error(request, f"Không quét được Etsy: {exc}")
+        return render(request, "products/etsy_csv.html", context)
+
+    scan_summary = {
+        "product_count": len(scan["urls"]),
+        "pages_scanned": scan["pages_scanned"],
+        "scan_credits": scan["credits_used"],
+        "extract_credits": (
+            len(scan["urls"]) * firecrawl_client.COLLECTION_CREDITS_PER_PAGE
+        ),
+        "truncated": scan["truncated"],
+        "discovery_mode": scan["discovery_mode"],
+    }
+    scan_token = signing.dumps(
+        {
+            "provider": "etsy",
+            "collection_url": source_url,
+            "urls": scan["urls"],
+            "scan": scan_summary,
+        },
+        salt=COLLECTION_TOKEN_SALT,
+        compress=True,
+    )
+    context.update({"scan": scan_summary, "scan_token": scan_token})
+    return render(request, "products/etsy_csv.html", context)
+
+
+def etsy_csv_progress(request):
+    try:
+        payload = _load_collection_job_token(request)
+        if payload.get("provider") != "etsy":
+            raise signing.BadSignature("wrong provider")
+    except (KeyError, TypeError, signing.BadSignature):
+        messages.error(request, "Job Etsy không hợp lệ hoặc đã hết hạn.")
+        return redirect("etsy_csv")
+
+    context = _etsy_csv_context(payload.get("collection_url") or "")
+    context.update({
+        "job_started": True,
+        "job_token": request.GET.get("token", ""),
+        "requested": payload.get("requested") or 0,
+        "fallback_requested": payload.get("fallback_requested") or 0,
+        "invalid_url_count": payload.get("invalid_url_count") or 0,
+    })
+    return render(request, "products/etsy_csv.html", context)
+
+
+def etsy_csv_status(request):
+    return collection_csv_status(request)
+
+
+def etsy_csv_download(request):
+    response = collection_csv_download(request)
+    if response.status_code == 302:
+        token = request.GET.get("token", "")
+        response["Location"] = (
+            f"{reverse('etsy_csv_progress')}?{urlencode({'token': token})}"
+        )
+    return response
 
 
 def crawl_studio(request):

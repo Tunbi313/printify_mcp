@@ -13,7 +13,11 @@
     <strong>{{ credits_per_page }} credit</strong> Firecrawl — kiểm tra
     ước tính bên dưới trước khi bấm crawl.
   </p>
-  <p class="tpl-meta"><a href="{% url 'crawl_gallery' %}">🗂️ Xem lịch sử crawl đã lưu →</a></p>
+  <p class="tpl-meta">
+    <a href="{% url 'crawl_gallery' %}">🗂️ Xem lịch sử crawl đã lưu →</a>
+    &nbsp;·&nbsp;
+    <a href="{% url 'collection_csv' %}">📄 Crawl toàn bộ collection → CSV gọn →</a>
+  </p>
 
   <form method="post" action="{% url 'crawl_studio' %}" id="crawl-form">
     {% csrf_token %}

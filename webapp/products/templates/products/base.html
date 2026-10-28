@@ -311,6 +311,14 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
           Crawl sản phẩm
         </a>
+        <a class="nav-item ai {% if url_name == 'collection_csv' or url_name == 'collection_csv_progress' %}active{% endif %}" href="{% url 'collection_csv' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h16"/><path d="M8 3v18"/></svg>
+          Collection CSV
+        </a>
+        <a class="nav-item ai {% if url_name == 'etsy_csv' or url_name == 'etsy_csv_progress' %}active{% endif %}" href="{% url 'etsy_csv' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h14M7 4v16M7 12h8M7 20h12"/></svg>
+          Etsy CSV
+        </a>
       </nav>
 
       <nav class="nav-group">
